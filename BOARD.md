@@ -123,7 +123,7 @@ These are standing rules, not suggestions. Cards below already reflect them.
 ## Cards
 
 ### CARD W0 — Repo skeleton
-**Status:** spawned
+**Status:** merged (PR #1, `238774c`)
 **Depends:** none
 **Branch:** `w0-skeleton`
 **Reads:** spec PDF (package names only)
@@ -152,7 +152,11 @@ These are standing rules, not suggestions. Cards below already reflect them.
 ---
 
 ### CARD W1 — §4 data model & generator
-**Status:** todo
+**Status:** merged (PR #2, `dfea777`). **No GitHub review was recorded on this PR** — W2
+will not skip the reviewer step to make up for it.
+**Note:** the overlay is OFF by default — `--overlay` is an explicit opt-in flag on the
+generator CLI. The demo / pass-1 command for the class-elimination moment MUST pass `--overlay`;
+a plain run will not plant the fee_offset siblings.
 **Depends:** W0 merged
 **Branch:** `w1-generator`
 **Reads:** spec §4
@@ -204,7 +208,7 @@ These are standing rules, not suggestions. Cards below already reflect them.
 ---
 
 ### CARD W2 — Agent 1 Matching
-**Status:** todo
+**Status:** spawned
 **Depends:** W1 merged
 **Branch:** `w2-matching`
 **Reads:** `data/pass1/ledger.csv`, `data/pass1/bank.csv` ONLY
