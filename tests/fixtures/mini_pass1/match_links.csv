@@ -1,0 +1,54 @@
+ledger_id,bank_txn_id,relation,defect,case_id,note
+LG-P1-000000,BK-P1-000000,exact,clean,C-P1-000000,clean settlement
+LG-P1-000001,BK-P1-000001,exact,clean,C-P1-000001,clean settlement
+LG-P1-000002,BK-P1-000002,partial,partial_payment,C-P1-000002,first partial installment
+LG-P1-000002,BK-P1-000003,partial,partial_payment,C-P1-000002,second partial installment
+LG-P1-000003,BK-P1-000004,exact,clean,C-P1-000003,clean settlement
+LG-P1-000004,BK-P1-000005,exact,clean,C-P1-000004,clean settlement
+LG-P1-000005,BK-P1-000006,exact,clean,C-P1-000005,clean settlement
+LG-P1-000006,BK-P1-000007,exact,missing_reference,C-P1-000006,reference blank on the bank side
+LG-P1-000007,BK-P1-000008,exact,clean,C-P1-000007,clean settlement
+LG-P1-000008,BK-P1-000009,exact,clean,C-P1-000008,clean settlement
+LG-P1-000009,BK-P1-000010,exact,negative_amount,C-P1-000009,guardrail bait: sign flipped
+LG-P1-000010,BK-P1-000011,exact,zero_amount,C-P1-000010,guardrail bait: zero posting
+LG-P1-000012,BK-P1-000012,exact,clean,C-P1-000012,clean settlement
+LG-P1-000013,BK-P1-000013,exact,clean,C-P1-000013,clean settlement
+LG-P1-000014,BK-P1-000014,exact,clean,C-P1-000014,clean settlement
+LG-P1-000015,BK-P1-000015,exact,fx_rounding,C-P1-000015,small fx/rounding delta
+LG-P1-000016,BK-P1-000016,exact,out_of_order,C-P1-000016,value date badly skewed from booking
+LG-P1-000017,BK-P1-000017,exact,clean,C-P1-000017,clean settlement
+LG-P1-000018,BK-P1-000018,exact,out_of_order,C-P1-000018,value date badly skewed from booking
+LG-P1-000019,BK-P1-000019,exact,clean,C-P1-000019,clean settlement
+LG-P1-000020,BK-P1-000020,partial,partial_payment,C-P1-000020,first partial installment
+LG-P1-000020,BK-P1-000021,partial,partial_payment,C-P1-000020,second partial installment
+LG-P1-000021,BK-P1-000022,exact,clean,C-P1-000021,clean settlement
+LG-P1-000022,BK-P1-000023,exact,clean,C-P1-000022,clean settlement
+LG-P1-000023,BK-P1-000024,exact,clean,C-P1-000023,clean settlement
+LG-P1-000024,BK-P1-000025,exact,out_of_order,C-P1-000024,value date badly skewed from booking
+LG-P1-000025,BK-P1-000026,exact,wrong_reference,C-P1-000025,bank quoted a different reference
+LG-P1-000026,BK-P1-000027,exact,clean,C-P1-000026,clean settlement
+LG-P1-000027,BK-P1-000028,partial,partial_payment,C-P1-000027,first partial installment
+LG-P1-000027,BK-P1-000029,partial,partial_payment,C-P1-000027,second partial installment
+LG-P1-000028,BK-P1-000030,exact,wrong_reference,C-P1-000028,bank quoted a different reference
+LG-P1-000029,BK-P1-000031,exact,clean,C-P1-000029,clean settlement
+LG-P1-000030,BK-P1-000032,exact,clean,C-P1-000030,clean settlement
+LG-P1-000031,BK-P1-000033,exact,clean,C-P1-000031,clean settlement
+LG-P1-000032,BK-P1-000034,exact,wrong_reference,C-P1-000032,bank quoted a different reference
+LG-P1-000033,BK-P1-000035,exact,clean,C-P1-000033,clean settlement
+LG-P1-000034,BK-P1-000036,exact,missing_reference,C-P1-000034,reference blank on the bank side
+LG-P1-000035,BK-P1-000037,exact,clean,C-P1-000035,clean settlement
+LG-P1-000036,BK-P1-000038,exact,clean,C-P1-000036,clean settlement
+LG-P1-000037,BK-P1-000039,exact,duplicate,C-P1-000037,"first leg, settles the ledger entry"
+LG-P1-000037,BK-P1-000040,duplicate,duplicate,C-P1-000037,second posting of the same event
+LG-P1-000038,BK-P1-000041,exact,clean,C-P1-000038,clean settlement
+LG-P1-000039,BK-P1-000042,exact,clean,C-P1-000039,clean settlement
+LG-P1-000040,BK-P1-000043,exact,fx_rounding,C-P1-000040,small fx/rounding delta
+LG-P1-000041,BK-P1-000044,exact,clean,C-P1-000041,clean settlement
+LG-P1-000042,BK-P1-000045,exact,clean,C-P1-000042,clean settlement
+LG-P1-000043,BK-P1-000046,exact,clean,C-P1-000043,clean settlement
+LG-P1-000044,BK-P1-000047,exact,clean,C-P1-000044,clean settlement
+LG-P1-000045,BK-P1-000048,exact,clean,C-P1-000045,clean settlement
+LG-P1-000046,BK-P1-000049,exact,duplicate,C-P1-000046,"first leg, settles the ledger entry"
+LG-P1-000046,BK-P1-000050,duplicate,duplicate,C-P1-000046,second posting of the same event
+LG-P1-000047,BK-P1-000052,exact,malformed,C-P1-000048,"padded/lowercased currency and name, junk separators"
+LG-P1-000048,BK-P1-000053,exact,wrong_reference,C-P1-000049,bank quoted a different reference

@@ -1,0 +1,50 @@
+ledger_id,booked_at,amount,currency,entry_type,counterparty_id,counterparty_name,reference,memo,account_code,source_system
+LG-P1-000000,2026-03-09T20:17:35Z,-108.26,USD,refund,CP-0473,Prairie Pharma Corp.,INV-2026-1000000,refund for Prairie Pharma Corp.,2100,payouts
+LG-P1-000001,2026-04-14T11:59:47Z,525.59,GBP,adjustment,CP-0474,Meridian Building Corp.,INV-2026-1000001,adjustment for Meridian Building Corp.,1200,manual
+LG-P1-000002,2026-05-05T22:27:45Z,-2885.37,USD,payout,CP-0617,Union Freight 35,INV-2026-1000002,payout for Union Freight 35,2100,payouts
+LG-P1-000003,2026-01-30T18:25:14Z,2290.81,USD,invoice_payment,CP-0701,Halcyon Freight Inc,INV-2026-1000003,invoice_payment for Halcyon Freight Inc,1200,billing
+LG-P1-000004,2026-03-28T00:37:33Z,517.88,USD,invoice_payment,CP-0780,Cascade Textiles Inc.,INV-2026-1000004,invoice_payment for Cascade Textiles Inc.,1200,billing
+LG-P1-000005,2026-03-26T05:27:06Z,-137.56,USD,payout,CP-0664,Northwind Media Co.,INV-2026-1000005,payout for Northwind Media Co.,2100,payouts
+LG-P1-000006,2026-03-25T13:43:16Z,-1131.06,EUR,adjustment,CP-0630,Orbit Retail Co.,INV-2026-1000006,adjustment for Orbit Retail Co.,2100,manual
+LG-P1-000007,2026-01-22T10:25:31Z,4322.28,GBP,adjustment,CP-0494,Juniper Robotics Corp.,INV-2026-1000007,adjustment for Juniper Robotics Corp.,1200,manual
+LG-P1-000008,2026-04-28T12:57:29Z,2697.73,GBP,adjustment,CP-0493,Vertex Foods 8,INV-2026-1000008,adjustment for Vertex Foods 8,1200,manual
+LG-P1-000009,2026-04-24T06:48:16Z,363.36,USD,fee,CP-0710,Outpost Building Inc,INV-2026-1000009,fee for Outpost Building Inc,1200,manual
+LG-P1-000010,2026-04-26T21:25:06Z,-3964.61,USD,payout,CP-0199,Granite Analytics Inc.,INV-2026-1000010,payout for Granite Analytics Inc.,2100,payouts
+LG-P1-000011,2026-02-04T23:55:03Z,-1912.36,EUR,adjustment,CP-0057,Falcon Foods Co.,INV-2026-1000011,adjustment for Falcon Foods Co.,2100,manual
+LG-P1-000012,2026-03-17T16:32:57Z,-1185.47,USD,payout,CP-0002,Vertex Software 2 Inc.,INV-2026-1000012,payout for Vertex Software 2 Inc.,2100,payouts
+LG-P1-000013,2026-03-24T14:29:59Z,-1347.06,USD,payout,CP-0767,Redwood Robotics Partners,INV-2026-1000013,payout for Redwood Robotics Partners,2100,payouts
+LG-P1-000014,2026-04-10T04:21:34Z,1146.56,USD,invoice_payment,CP-0038,Pioneer Robotics,INV-2026-1000014,invoice_payment for Pioneer Robotics,1200,billing
+LG-P1-000015,2026-01-09T18:38:17Z,-1016.83,USD,fee,CP-0575,Frontier Materials Ltd.,INV-2026-1000015,fee for Frontier Materials Ltd.,2100,manual
+LG-P1-000016,2026-01-22T09:04:06Z,-1429.23,USD,refund,CP-0530,Orbit Media 45 Inc,INV-2026-1000016,refund for Orbit Media 45 Inc,2100,payouts
+LG-P1-000017,2026-02-17T08:01:35Z,-1586.83,USD,refund,CP-0681,Meridian Building Co.,INV-2026-1000017,refund for Meridian Building Co.,2100,payouts
+LG-P1-000018,2026-01-27T08:06:05Z,-804.06,USD,refund,CP-0509,Summit Retail Inc,INV-2026-1000018,refund for Summit Retail Inc,2100,payouts
+LG-P1-000019,2026-01-20T16:34:53Z,4037.94,USD,invoice_payment,CP-0370,Lighthouse Retail Inc,INV-2026-1000019,invoice_payment for Lighthouse Retail Inc,1200,billing
+LG-P1-000020,2026-01-16T06:24:09Z,-1054.13,USD,refund,CP-0106,Granite Robotics Inc.,INV-2026-1000020,refund for Granite Robotics Inc.,2100,payouts
+LG-P1-000021,2026-02-20T05:28:29Z,1882.00,USD,adjustment,CP-0362,Halcyon Pharma,INV-2026-1000021,adjustment for Halcyon Pharma,1200,manual
+LG-P1-000022,2026-03-09T00:08:01Z,-4639.20,USD,payout,CP-0453,Harbor Analytics,INV-2026-1000022,payout for Harbor Analytics,2100,payouts
+LG-P1-000023,2026-04-27T08:35:12Z,-421.79,USD,payout,CP-0674,Delta Foods 92,INV-2026-1000023,payout for Delta Foods 92,2100,payouts
+LG-P1-000024,2026-03-24T05:50:46Z,-626.48,USD,refund,CP-0049,Delta Foods Group,INV-2026-1000024,refund for Delta Foods Group,2100,payouts
+LG-P1-000025,2026-01-24T18:07:57Z,-1461.87,GBP,fee,CP-0700,Monarch Media Ltd,INV-2026-1000025,fee for Monarch Media Ltd,2100,manual
+LG-P1-000026,2026-01-11T07:29:10Z,-4399.94,USD,adjustment,CP-0647,Juniper Media Inc,INV-2026-1000026,adjustment for Juniper Media Inc,2100,manual
+LG-P1-000027,2026-03-17T23:40:41Z,4655.41,USD,invoice_payment,CP-0114,Juniper Retail Co.,INV-2026-1000027,invoice_payment for Juniper Retail Co.,1200,billing
+LG-P1-000028,2026-01-29T18:22:11Z,-4453.65,EUR,payout,CP-0256,Harbor Foods Ltd.,INV-2026-1000028,payout for Harbor Foods Ltd.,2100,payouts
+LG-P1-000029,2026-03-12T22:06:28Z,3999.20,USD,subscription_charge,CP-0114,Juniper Retail Co.,INV-2026-1000029,subscription_charge for Juniper Retail Co.,1200,billing
+LG-P1-000030,2026-05-01T17:22:22Z,924.48,USD,adjustment,CP-0470,Orbit Chemicals,INV-2026-1000030,adjustment for Orbit Chemicals,1200,manual
+LG-P1-000031,2026-01-24T16:11:14Z,4908.53,USD,subscription_charge,CP-0053,Harbor Systems,INV-2026-1000031,subscription_charge for Harbor Systems,1200,billing
+LG-P1-000032,2026-01-27T01:39:43Z,2647.71,USD,subscription_charge,CP-0653,Anchor Networks,INV-2026-1000032,subscription_charge for Anchor Networks,1200,billing
+LG-P1-000033,2026-03-08T11:26:50Z,4715.08,USD,subscription_charge,CP-0305,Vertex Building,INV-2026-1000033,subscription_charge for Vertex Building,1200,billing
+LG-P1-000034,2026-04-18T10:32:46Z,-1086.91,USD,payout,CP-0253,Halcyon Networks Corp,INV-2026-1000034,payout for Halcyon Networks Corp,2100,payouts
+LG-P1-000035,2026-03-21T15:48:52Z,1352.01,GBP,invoice_payment,CP-0354,Granite Materials Inc.,INV-2026-1000035,invoice_payment for Granite Materials Inc.,1200,billing
+LG-P1-000036,2026-04-13T20:14:13Z,-3198.42,GBP,payout,CP-0424,Redwood Chemicals,INV-2026-1000036,payout for Redwood Chemicals,2100,payouts
+LG-P1-000037,2026-01-10T01:28:46Z,-1759.86,USD,refund,CP-0758,Outpost Systems,INV-2026-1000037,refund for Outpost Systems,2100,payouts
+LG-P1-000038,2026-02-20T17:05:11Z,-549.26,USD,adjustment,CP-0789,Falcon Retail,INV-2026-1000038,adjustment for Falcon Retail,2100,manual
+LG-P1-000039,2026-03-02T19:46:04Z,1568.76,USD,invoice_payment,CP-0286,Ironwood Transport Partners,INV-2026-1000039,invoice_payment for Ironwood Transport Partners,1200,billing
+LG-P1-000040,2026-01-17T12:15:21Z,-2936.20,USD,payout,CP-0604,Cascade Materials,INV-2026-1000040,payout for Cascade Materials,2100,payouts
+LG-P1-000041,2026-02-20T07:14:29Z,685.01,EUR,subscription_charge,CP-0246,Harbor Energy Holdings,INV-2026-1000041,subscription_charge for Harbor Energy Holdings,1200,billing
+LG-P1-000042,2026-04-18T09:19:43Z,-15.52,USD,fee,CP-0772,Delta Systems Ltd,INV-2026-1000042,fee for Delta Systems Ltd,2100,manual
+LG-P1-000043,2026-04-22T23:29:36Z,-1468.93,USD,payout,CP-0607,Acme Building LLC,INV-2026-1000043,payout for Acme Building LLC,2100,payouts
+LG-P1-000044,2026-05-04T19:03:04Z,728.61,USD,invoice_payment,CP-0109,Granite Materials 12,INV-2026-1000044,invoice_payment for Granite Materials 12,1200,billing
+LG-P1-000045,2026-01-13T22:11:38Z,-901.48,USD,payout,CP-0680,Outpost Transport Inc,INV-2026-1000045,payout for Outpost Transport Inc,2100,payouts
+LG-P1-000046,2026-03-25T06:23:31Z,-2181.29,USD,refund,CP-0272,Northwind Retail 78,INV-2026-1000046,refund for Northwind Retail 78,2100,payouts
+LG-P1-000047,2026-02-19T15:57:29Z,-4906.18,USD,fee,CP-0297,Granite Capital 6,INV-2026-1000047,fee for Granite Capital 6,2100,manual
+LG-P1-000048,2026-01-24T06:04:19Z,-3765.91,USD,refund,CP-0001,Meridian Foods,INV-2026-1000048,refund for Meridian Foods,2100,payouts
