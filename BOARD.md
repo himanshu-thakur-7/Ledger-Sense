@@ -295,9 +295,10 @@ category/named owner/clock; GT duplicates → duplicate 100%; guardrail bait →
 ---
 
 ### CARD W4 — Agent 4 Escalation / Guardrail
-**Status:** spawned — running as session `ledger-sense-7` ("W4 guardrail"), branch
-`w4-guardrail`. No PR yet as of this note. Running in parallel with W3 (`guardrail/**` vs
-`routing/**` — disjoint file sets, per the parallelism rule below).
+**Status:** spawned — running as session `ledger-sense-9` ("W4 guardrail"), branch
+`w4-guardrail`. (Prior attempt `ledger-sense-7` died with zero pushed work — no branch, no PR —
+replaced, not resumed.) Running in parallel with W3 (`guardrail/**` vs `routing/**` — disjoint
+file sets, per the parallelism rule below).
 **Depends:** W2 merged (MAY run in parallel with W3)
 **Branch:** `w4-guardrail`
 **Reads:** `ledger.csv`, `bank.csv`; Agent 1–2 outputs only for corroboration / carrying
