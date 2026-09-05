@@ -98,14 +98,25 @@ No other parallelism. W5 does not start early "to save time" — it needs W2, W3
 
 ---
 
-## ⚠ Open item — confirm before W4 spawns
+## Resolved decisions (partner lock, round 1)
 
-PDF §8.1's Agent 4 policy book is exactly: `denied_party` (block), `duplicate_release` (block),
-`dual_control` (hold), `out_of_period` (hold), `upstream_veto` (matches upstream severity).
-"zero-amount / sign-flip / currency mismatch" are Agent 1's guardrail-interlock (PDF §5.6), not
-Agent 4 policies. W4's card below has been corrected to follow the PDF. Flagging here per the
-standing rule: PDF disagreement on card contents → stop and escalate, don't invent a third
-version. **Escalated to human — see chat.**
+These are standing rules, not suggestions. Cards below already reflect them.
+
+- **Q1 — Demo surface:** No new card, no web UI, no demo-harness worker. The CLI lives inside
+  W5 (`resolve`/`promote`) and W6 (`scoreboard`). If a worker proposes React/HTML for judges,
+  refuse — kill-list spirit (L15) stands.
+- **Q2 — Sponsors:** Stub-only. TensorMux keeps the L9 seam, no Docker work, no container card.
+  Neatlogs and Dodo Payments are out of v1 entirely. No sponsor card gets spawned without the
+  human explicitly saying go, even if W7 finishes early.
+- **Q3 — Overlay:** Disclosed, not hidden. Overlay rows are labeled in the data; the printed
+  summary and README say plainly that the class-elimination moment was seeded to be visible in
+  one run. L6 (pass 2 not easier) still holds regardless.
+- **Q4 — Ownership framing:** Named as a known limitation in the README, same style as the
+  decoy-name and TensorMux limitations. Never sold as "routes to the right human in the org."
+- **Q5 — W4 vs Agent 1 interlock:** PDF reading confirmed. Agent 4's policy book is exactly
+  `denied_party`/`duplicate_release` (block), `dual_control`/`out_of_period` (hold),
+  `upstream_veto` (matches upstream severity). Zero-amount/sign-flip/currency-mismatch stay on
+  Agent 1 (§5.6), already in W2.
 
 ---
 
@@ -164,11 +175,16 @@ version. **Escalated to human — see chat.**
 - Reference command: `seed=42, pass_number=1, n_cases=25000`
 - Pass 2 path: `seed=42, pass_number=2`, same `n_cases` → new txns, non-overlapping references,
   same counterparties, same defect shape, NOT easier
-- DEMO OVERLAY (answers PDF §15 open question A): inspect how many exception-shaped siblings
-  share (counterparty ≈ X AND amount_delta bucket AND ref pattern). If no class has ≥8 siblings
-  that will survive Agent 1 as exceptions, add an explicit overlay flag that plants 12–20
-  siblings of one fee_offset-shaped defect without changing the rest of the mix more than
+- DEMO OVERLAY (answers PDF §15 open question A, locked Q3): inspect how many exception-shaped
+  siblings share (counterparty ≈ X AND amount_delta bucket AND ref pattern). If no class has ≥8
+  siblings that will survive Agent 1 as exceptions, add an explicit overlay flag that plants
+  12–20 siblings of one fee_offset-shaped defect without changing the rest of the mix more than
   documented
+- **Overlay must be labeled, not hidden (locked Q3):** every overlay-planted row carries a flag
+  or note (e.g. `match_links.note` says `overlay:fee_offset`, or an `is_overlay` column) so it's
+  auditable, not indistinguishable from organic data. Overlay presence and count must not change
+  what "not easier" means for pass 2 — L6 still holds: pass 2's overlay siblings (if any) are
+  generated fresh from the case stream, not copied.
 
 **Must not:** matching, routing, any read of `match_links.csv` from a future agent package.
 
@@ -177,8 +193,10 @@ version. **Escalated to human — see chat.**
 2. Defect histogram within a tight documented tolerance of §4.2
 3. key4 invariant test
 4. Pass 2 references disjoint from pass 1; counterparty universe equal
-5. Printed summary: row counts, defect histogram, unique counterparties, overlay class size
-6. Money never stored as float in generator
+5. Printed summary: row counts, defect histogram, unique counterparties, overlay class name +
+   sibling count called out explicitly (not buried in the histogram)
+6. Every overlay row is labeled and the label is queryable/testable (not just a comment)
+7. Money never stored as float in generator
 
 **Laws:** L3, L4, L5, L6, L15, L16
 **Stop. Do not start Agent 1.**
@@ -324,6 +342,8 @@ Agent 4 policies — those are Agent 1's guardrail-interlock (§5.6), already im
 - `src/ledger_sense/learning/**`
 - `tests/test_learning.py`
 - `rules.json`
+- CLI entrypoints `ledger_sense resolve` and `ledger_sense promote` (locked Q1 — this is the
+  entire demo interaction surface, no separate UI/harness card exists or will exist)
 - thin insert hook that Agent 1 pass-2 calls — insertion BETWEEN cheap tier and routing
   escalate, not a rewrite of matching internals. If the hook must live in `matching/`, it is a
   20-line `consume_rules()` only; coordinate as a follow-up card since W2 is already merged.
@@ -342,6 +362,13 @@ Agent 4 policies — those are Agent 1's guardrail-interlock (§5.6), already im
 - Pass 2: lines that would have escalated are checked against `rules.json` first; hit resolves
   and stamps `rule_id`
 - Guardrail veto before fire (`would_block_or_hold` from W4)
+- **CLI, locked Q1 — this is the demo surface, terminal only, no web/GUI:**
+  - `ledger_sense resolve` takes the structured fields directly (`exception_id`,
+    `resolution_type`, the evidence/predicate, `rationale`) — flags or a prompted form, worker's
+    choice, but never a free-text "approve". After running it, print the candidate predicate in
+    plain English, its support count against the current exception pile, and `status=candidate`.
+  - `ledger_sense promote <rule_id> --confirm yes-always` is the only way to promote — no other
+    path writes `rules.json`. On success, write `rules.json` and print `rule_id ← resolution_id`.
 
 **Acceptance:**
 1. Every rule has `resolution_id`
@@ -350,8 +377,10 @@ Agent 4 policies — those are Agent 1's guardrail-interlock (§5.6), already im
 4. STR pass2 > STR pass1; delta explained by rule hits
 5. `manual_one_off` does not create a rule
 6. Tests prove pass-2 climb is rule application, not easier data
+7. `ledger_sense resolve` and `ledger_sense promote <rule_id> --confirm yes-always` work
+   end-to-end from the terminal and produce the exact printed output specified above
 
-**Does not:** memoize `bank_txn_id`; CFO UI; corroboration-count promotion.
+**Does not:** memoize `bank_txn_id`; CFO UI; web UI of any kind; corroboration-count promotion.
 
 **Laws:** L1, L6, L11, L12, L13, L14
 **Stop.**
@@ -367,14 +396,19 @@ Agent 4 policies — those are Agent 1's guardrail-interlock (§5.6), already im
 - `src/ledger_sense/metrics/**`
 - `tests/test_metrics.py`
 - `scoreboard.json` (or equivalent)
+- CLI entrypoint `ledger_sense scoreboard` (locked Q1 — terminal only, part of the demo surface)
 
 **Must implement:**
 - Run or consume two full passes
 - Side-by-side: STR, exceptions remaining, exceptions eliminated BY CLASS, learned-rule count
 - Trace table: auto-resolved row → `rule_id` → `resolution_id`
 - Refuse to print a pass-2 number that was not computed from files on disk
+- **CLI, locked Q1:** `ledger_sense scoreboard` prints the pass1-vs-pass2 comparison
+  (STR, exceptions by class, learned-rule count, traces) computed only from files already on
+  disk — terminal output, no rendering step required. Piping it through `ao preview` later for
+  a nicer view on camera is fine; that is not a build requirement and not a new card.
 
-**Does not:** fancy CFO dashboard, charts that invent numbers.
+**Does not:** fancy CFO dashboard, charts that invent numbers, any web UI.
 
 **Laws:** L2, L4, L6
 **Stop.**
@@ -391,11 +425,29 @@ Agent 4 policies — those are Agent 1's guardrail-interlock (§5.6), already im
 - §1 positioning sentences ("Finance software automates known rules...")
 - How to generate data and run pass 1, resolve, pass 2
 - Measured numbers from this machine
-- Honest stub/TensorMux sentence (answers PDF §15 open question C)
 - How AO was used: orchestrator + list of workers + branches + PRs + reviewers
-- 60–90s demo script matching: chaos batch → pass1 split → structured human teach → candidate
-  predicate → pass2 → scoreboard move
+- 60–90s demo script that is literally the CLI commands in order, run in a terminal on camera:
+  `generate` (pass 1) → `ledger_sense resolve` → `ledger_sense promote <rule_id> --confirm
+  yes-always` → `generate` (pass 2) / rerun → `ledger_sense scoreboard`. No React/HTML, no
+  screen mockup — terminal output is the demo (locked Q1).
+- **Sponsor disclosure paragraph (locked Q2, answers PDF §15 open question C), verbatim intent:**
+  state plainly that this environment has no Docker and no `TENSORMUX_*`/`NEATLOGS_*`/`DODO_*`
+  env vars; the cheap tier is the measured path; the expensive/LLM tier is a documented stub
+  (`llm_is_stub=True`, `llm_calls` measured); Neatlogs and Dodo Payments are out of this build
+  entirely.
+- **Overlay disclosure sentence (locked Q3), exact text:**
+  "Pass-1 includes a labeled overlay of N sibling fee-offset exceptions so the learning moment
+  is visible in one run; matching and resolution logic are not scripted."
+- **Ownership-framing limitation bullet (locked Q4), exact text, alongside the decoy-name (§5.4)
+  and TensorMux limitations:**
+  "Agent 2 assigns a named person from a fixed roster via blake2b(counterparty). It does not
+  discover the real organizational owner of a dependency. Routing exists to feed learning and
+  SLA, not to replace org design."
+- The demo script and README must never claim Agent 2 "routes to the right human in the org" —
+  reject that framing if a draft contains it.
 
-**Does not:** new product features.
+**Does not:** new product features, sponsor integration work beyond the disclosure paragraph
+(Neatlogs/Dodo/TensorMux container work is out of v1 — locked Q2; do not spawn that card
+without the human explicitly saying go).
 
 **Stop.**
