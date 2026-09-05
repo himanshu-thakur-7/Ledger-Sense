@@ -208,7 +208,12 @@ a plain run will not plant the fee_offset siblings.
 ---
 
 ### CARD W2 — Agent 1 Matching
-**Status:** spawned
+**Status:** merged (PR #3, `521dadc`). Measured seed=42 pass 1, overlay OFF: cheap-tier
+83.93% (22872/27250), overall with stub 89.31%, precision 1.000000, 1250/1250 duplicate cases
+one settlement + one duplicate, 0 bait/orphan auto-matches, `llm_calls==0`, two full-output
+reruns byte-identical. Cheap-tier target (~88–89%) was missed at 83.93% — **do not reopen W2
+for this**; it was reported honestly by the worker rather than tuned to hit the number, and the
+overall-with-stub figure (89.31%) clears its own target. Note for the record.
 **Depends:** W1 merged
 **Branch:** `w2-matching`
 **Reads:** `data/pass1/ledger.csv`, `data/pass1/bank.csv` ONLY
@@ -251,7 +256,7 @@ runs byte-identical CSVs.
 ---
 
 ### CARD W3 — Agent 2 Ownership / Routing
-**Status:** todo
+**Status:** spawned
 **Depends:** W2 merged
 **Branch:** `w3-routing`
 **Reads:** Agent 1 output files only
@@ -290,7 +295,9 @@ category/named owner/clock; GT duplicates → duplicate 100%; guardrail bait →
 ---
 
 ### CARD W4 — Agent 4 Escalation / Guardrail
-**Status:** todo
+**Status:** spawned — running as session `ledger-sense-7` ("W4 guardrail"), branch
+`w4-guardrail`. No PR yet as of this note. Running in parallel with W3 (`guardrail/**` vs
+`routing/**` — disjoint file sets, per the parallelism rule below).
 **Depends:** W2 merged (MAY run in parallel with W3)
 **Branch:** `w4-guardrail`
 **Reads:** `ledger.csv`, `bank.csv`; Agent 1–2 outputs only for corroboration / carrying
