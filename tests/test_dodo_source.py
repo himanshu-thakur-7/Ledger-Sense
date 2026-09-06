@@ -1,4 +1,5 @@
-"""Acceptance tests for the W11 Dodo Payments sandbox source (BOARD.md W11 card).
+"""Acceptance tests for the W11 Dodo Payments sandbox source (BOARD.md W11 card)
+and its W16 request-shape/error-handling fixes.
 
 Covers acceptance 1 (mocked client, zero live network calls), 2 (schema parity
 with data/generator.py's output), 3 (idempotent pull -- no duplicate rows),
@@ -6,9 +7,17 @@ and 5 (missing DODO_API_KEY + --source dodo -> clean nonzero exit, never a
 stack trace). See test_dodo_pairing.py for the ledger-synthesis half and
 test_matching.py-style fixtures for acceptance 4 (matching.engine integration).
 
-Law L20: every test here plugs a fake `DodoClient` in -- nothing in this file
-ever imports `urllib` or opens a socket. `DodoSandboxClient` (the real
-transport) is only ever *referenced*, never instantiated with real network IO.
+W16 adds: a mocked test proving a configured-but-failing key (`DodoAPIError`)
+degrades through `cli.py` exactly like a missing key does (W16 acceptance 2),
+and a single opt-in `@pytest.mark.slow` test that makes one real call against
+Dodo's real sandbox endpoint (W16 acceptance 1) -- skipped whenever a real
+`DODO_API_KEY` isn't configured, so it never runs as part of the default/CI
+suite.
+
+Law L20: every test here except that one opt-in slow test plugs a fake
+`DodoClient` in -- nothing else in this file ever imports `urllib` or opens a
+socket. `DodoSandboxClient` (the real transport) is otherwise only ever
+*referenced*, never instantiated with real network IO.
 """
 
 from decimal import Decimal
@@ -219,6 +228,57 @@ def test_cli_missing_key_exits_nonzero_with_clear_message_no_traceback(capsys):
     assert "Traceback" not in captured.err
 
 
+# ---------------------------------------------------------------------------
+# W16 acceptance 2: a configured-but-failing key (DodoAPIError) degrades as
+# cleanly as an absent key -- one-line stderr, nonzero exit, no traceback.
+# ---------------------------------------------------------------------------
+
+
+class FailingDodoClient:
+    """A `DodoClient` that raises `DodoAPIError` -- simulates a real Dodo
+    transport failure (e.g. the exact HTTP-403-shaped error W14's live smoke
+    test hit) without any real network IO (law L20)."""
+
+    def list_transactions(self, *, cursor=None):
+        from ledger_sense.data.dodo_source import DodoAPIError
+
+        raise DodoAPIError(
+            "Dodo sandbox list_transactions failed after 3 attempt(s): "
+            "HTTP 403 Forbidden -- error code: 1010"
+        )
+
+
+def test_cli_dodo_api_error_exits_nonzero_with_clear_message_no_traceback(capsys):
+    """The exact gap W14's live smoke test found: a configured key that still
+    fails against the real API must exit as cleanly as a missing key does,
+    never with a raw traceback (law L18, W16 acceptance 2)."""
+    from ledger_sense.config import Config
+    from ledger_sense.data.cli import main
+
+    cfg = Config(dodo_api_key="dodo-test-key", data_source="dodo")
+    exit_code = main(
+        ["--seed", "1", "--pass-number", "1", "--n-cases", "5", "--source", "dodo"],
+        config=cfg,
+        client=FailingDodoClient(),
+    )
+    assert exit_code != 0
+    captured = capsys.readouterr()
+    assert "error:" in captured.err
+    assert "403" in captured.err
+    assert "Traceback" not in captured.err
+    assert captured.err.count("\n") <= 1  # a single clean line, not a dump
+
+
+def test_dodo_api_error_raised_by_pull_is_not_caught_anywhere_else():
+    """`DodoAPIError` must propagate out of `build_dodo_dataset`/
+    `pull_bank_transactions` uncaught -- only `cli.py::main` is allowed to
+    catch it (and turn it into a clean exit)."""
+    from ledger_sense.data.dodo_source import DodoAPIError, build_dodo_dataset
+
+    with pytest.raises(DodoAPIError):
+        build_dodo_dataset(FailingDodoClient(), seed=1)
+
+
 def test_cli_synthetic_default_unaffected_by_missing_dodo_key(tmp_path):
     from ledger_sense.config import Config
     from ledger_sense.data.cli import main
@@ -292,3 +352,40 @@ def test_cli_dodo_source_with_key_and_injected_client_succeeds(tmp_path):
     assert (tmp_path / "ledger.csv").exists()
     assert (tmp_path / "bank.csv").exists()
     assert (tmp_path / "match_links.csv").exists()
+
+
+# ---------------------------------------------------------------------------
+# W16 acceptance 1: one real, non-mocked call against Dodo's real sandbox
+# endpoint. Opt-in (`@pytest.mark.slow`) and skipped whenever a real
+# DODO_API_KEY isn't configured (via .env or the real environment) -- this
+# never runs as part of the default/CI suite and never requires a live key
+# (mirrors W6's real-batch opt-in tests / W15's real-SDK test convention).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.slow
+def test_real_dodo_sandbox_list_transactions_no_longer_403s():
+    """This is the exact request W14's live smoke test found returning a 403
+    (`DodoSandboxClient.list_transactions()` against
+    `https://test.dodopayments.com/payments`). Proves the fix: a real
+    sandbox key now gets a real 200 (with or without transactions) instead
+    -- a 403 here means the request shape is still broken."""
+    from ledger_sense.config import load_config
+    from ledger_sense.data.dodo_source import DodoAPIError, DodoSandboxClient
+
+    cfg = load_config()
+    if not cfg.dodo_enabled():
+        pytest.skip("DODO_API_KEY not configured -- set it (.env or real env) to run this live test")
+
+    client = DodoSandboxClient(api_key=cfg.dodo_api_key)
+    try:
+        page = client.list_transactions()
+    except DodoAPIError as exc:
+        pytest.fail(
+            f"real Dodo sandbox call failed -- request shape is still wrong: {exc}"
+        )
+
+    # A real 200 either way: some transactions, or a documented empty
+    # sandbox account. Either is an acceptable real outcome -- a 403 above
+    # would have already failed this test via DodoAPIError.
+    assert isinstance(page.transactions, tuple)

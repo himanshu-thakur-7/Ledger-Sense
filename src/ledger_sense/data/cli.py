@@ -13,9 +13,11 @@ Add ``--source dodo`` (W11, LEDGER-SENSE-v2-PRD.md) to pull real Dodo Payments
 *sandbox* transactions instead of pure synthesis -- see ``dodo_source.py`` for
 the pull-then-synthesize pipeline this delegates to. Requires ``DODO_API_KEY``
 (``LEDGER_SENSE_DATA_SOURCE=dodo`` alone is not enough, mirroring
-``config.py``'s ``using_dodo_source()`` gate); when the key is absent this
-exits cleanly with a nonzero code and a one-line message (never a stack
-trace, law L18) and never touches the default synthetic path.
+``config.py``'s ``using_dodo_source()`` gate); when the key is absent, or
+when a configured key still fails against the real Dodo sandbox API (W16 --
+``DodoAPIError``), this exits cleanly with a nonzero code and a one-line
+message (never a stack trace, law L18) and never touches the default
+synthetic path.
 """
 
 import argparse
@@ -26,6 +28,7 @@ from typing import Optional
 from ..config import Config, load_config
 from ..tracing import traced_run
 from .dodo_source import (
+    DodoAPIError,
     DodoClient,
     DodoNotConfiguredError,
     DodoSandboxClient,
@@ -89,13 +92,18 @@ def main(argv=None, *, config: Optional[Config] = None, client: Optional[DodoCli
     source = args.source or cfg.data_source
 
     if source == "dodo":
+        # Both a missing key (DodoNotConfiguredError) and a configured-but-
+        # failing key (DodoAPIError -- a real Dodo transport failure) must
+        # degrade identically: a clean one-line stderr message and a nonzero
+        # exit, never a raw traceback (law L18, W16 -- W14's smoke test found
+        # DodoAPIError wasn't caught here the way DodoNotConfiguredError was).
         try:
             ensure_dodo_configured(cfg)
-        except DodoNotConfiguredError as exc:
+            dodo_client = client if client is not None else DodoSandboxClient(api_key=cfg.dodo_api_key)
+            dodo_dataset = build_dodo_dataset(dodo_client, seed=args.seed)
+        except (DodoNotConfiguredError, DodoAPIError) as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 1
-        dodo_client = client if client is not None else DodoSandboxClient(api_key=cfg.dodo_api_key)
-        dodo_dataset = build_dodo_dataset(dodo_client, seed=args.seed)
         if args.out_dir:
             write_dataset(dodo_dataset, args.out_dir)
         print(dodo_dataset.format())
