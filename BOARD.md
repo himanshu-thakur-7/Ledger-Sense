@@ -1112,7 +1112,7 @@ already merged (PR #16) the base request/auth fix and clean `DodoAPIError` exit;
 work here is scoped down to verify/extend (the `dodo-cache` fallback path specifically), not
 re-fix what's already correct.
 
-**Status:** spawned
+**Status:** spawned (session ledger-sense-23)
 **Depends:** main tip as fetched at spawn time (post-W16 merge). Do not reopen W2–W5
 scoring/weights/policy.
 **Branch:** `tape-1-desk`
