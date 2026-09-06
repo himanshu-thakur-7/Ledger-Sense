@@ -1,43 +1,54 @@
-"""Neatlogs tracing/observability wrapper (spec: LEDGER-SENSE-v2-PRD.md, W10).
+"""Neatlogs tracing/observability wrapper (spec: LEDGER-SENSE-v2-PRD.md, W10;
+fixed against the real SDK by TAPE-1).
 
-``traced_run(agent_name, **metadata)`` is the single wrap point every agent CLI
-entrypoint calls -- either as a decorator on its ``main`` function or as a
-context manager around its body (both work; ``traced_run`` is a
+``traced_run(agent_name, **metadata)`` is the single wrap point every agent
+CLI entrypoint calls -- either as a decorator on its ``main`` function or as
+a context manager around its body (both work; ``traced_run`` is a
 ``contextlib.ContextDecorator``). Each of the six entrypoints
 (``data/cli.py``, ``matching/__main__.py``, ``routing/__main__.py``,
-``guardrail/__main__.py``, ``learning/cli.py``, ``metrics/cli.py``) adds
-exactly one such call -- nothing else about those files changes.
+``guardrail/cli.py``, ``learning/cli.py``, ``metrics/cli.py``) adds exactly
+one such call -- nothing else about those files changes.
+
+TAPE-1 fix: W10's original implementation called a ``neatlogs.Client(...)``
+that does not exist in the real, installed Neatlogs SDK (confirmed live by
+W14's smoke test -- every span silently failed to send, 0/4, even though
+L18's fallback kept every CLI exiting clean). The real SDK is a
+module-level API, not a client object:
+
+  * ``neatlogs.init(api_key=..., workflow_name="ledger-sense")`` -- once per
+    process, before anything that might import ``openai`` runs (this
+    module's ``__enter__`` always runs first, since ``traced_run`` wraps the
+    *entire* entrypoint body/decorated function).
+  * ``neatlogs.span(kind=WORKFLOW, name=agent_name)`` -- one span per agent
+    run, entered/exited around the wrapped call.
+  * ``neatlogs.flush()`` / ``neatlogs.shutdown()`` -- called once, at the end
+    of the same ``traced_run`` block, since every entrypoint's single wrap
+    point already spans that process's entire agent run (i.e. "on CLI exit").
 
 Behavior (L18 -- absence of a live-mode key degrades gracefully, never
 crashes, never changes v1's zero-key output):
 
   * ``config.tracing_enabled()`` False (no ``NEATLOGS_API_KEY``) -> this is a
     complete, zero-overhead no-op. Nothing is imported from ``neatlogs``, no
-    client is built, stdout is never touched -- the wrapped call runs exactly
+    span is opened, stdout is never touched -- the wrapped call runs exactly
     as if ``tracing.py`` did not exist.
-  * ``tracing_enabled()`` True -> starts a Neatlogs span, timed, tagged with
-    ``agent_name`` plus the caller's static ``**metadata``. Every entrypoint
-    already prints an agent/row-count/verdict-breakdown/llm_calls-shaped
-    summary line (see each ``__main__.py``/``cli.py``) -- rather than require
-    a *second* edit to those files to thread that data through, the span
-    best-effort-enriches itself by reading the wrapped call's own stdout
-    (teed, so the terminal still sees exactly what it always saw).
+  * ``tracing_enabled()`` True -> ``neatlogs.init(...)`` runs, then a single
+    ``neatlogs.span(kind=WORKFLOW, name=agent_name)`` wraps the call, then
+    ``flush()``/``shutdown()`` runs before this process exits.
 
-Never raises (L18): building the Neatlogs client, sending the span, or
-parsing stdout for extra metadata is wrapped in a broad ``except Exception``
-that swallows the failure -- the wrapped call's own return value or exception
-always propagates completely unchanged. Only the wrapped call's *own*
-exception is ever allowed through.
+Never raises (L18): initializing Neatlogs, opening/closing the span, or
+attaching metadata to it is wrapped in a broad ``except Exception`` per step
+that swallows the failure and prints exactly one stderr line -- the wrapped
+call's own return value or exception always propagates completely
+unchanged. Only the wrapped call's *own* exception is ever allowed through.
 
-Redaction (L19): every string value attached to a span -- static metadata and
-whatever was parsed from stdout alike -- is passed through
-``llm_client.redact`` before it is ever handed to the Neatlogs client, so a
-credential-shaped value can never reach the (real or mocked) transport.
+Redaction (L19): every string value attached to a span -- static metadata
+and the run's own status/error -- is passed through ``llm_client.redact``
+before it is ever handed to the (real or mocked) Neatlogs SDK.
 """
 
 from __future__ import annotations
 
-import re
 import sys
 import time
 from contextlib import ContextDecorator
@@ -46,38 +57,8 @@ from typing import Any
 from .config import Config, load_config
 from .llm_client import redact
 
-# The exact `key=value` shape every entrypoint's first summary line already
-# uses (e.g. "bank lines=54; ledger entries=49; matched=49"). Only numeric
-# values are kept -- that is what "input/output row counts" means here; a
-# non-numeric value (a model name, a policy version, ...) is not a row count
-# and is left out rather than guessed at.
-_INT_VALUE_RE = re.compile(r"^-?\d+$")
-
-# Guardrail's per-line "allow: N/total (P%)" breakdown (guardrail entrypoint
-# only -- no other entrypoint ever prints a line shaped like this).
-_VERDICT_RE = re.compile(r"^(allow|block|hold):\s*(\d+)/(\d+)")
-
-# matching/learning/routing's shared "llm_calls=N"/"llm_is_stub=True" shape,
-# present only when an LLM seam actually ran (W9/W12/W13).
-_LLM_CALLS_RE = re.compile(r"\bllm_calls=(\d+)\b")
-_LLM_STUB_RE = re.compile(r"\bllm_is_stub=(True|False)\b")
-
-
-def _build_client(cfg: Config) -> Any:
-    """Lazily import and construct the real Neatlogs SDK client.
-
-    Only ever called when ``cfg.tracing_enabled()`` is True, from inside
-    ``traced_run``'s own broad ``except Exception`` -- so a missing
-    ``neatlogs`` package (the base install stays dependency-free, L20) or a
-    real construction failure never crashes the caller, it just means this
-    run's span silently isn't sent (L18).
-
-    Every test in this repo (L20) monkeypatches this function directly with
-    a fake client -- none ever reaches the real ``import neatlogs`` below.
-    """
-    import neatlogs  # noqa: PLC0415 -- deliberately lazy, mirrors llm_adjudicator.py
-
-    return neatlogs.Client(api_key=cfg.neatlogs_api_key)
+# The exact workflow name every span in this project is grouped under.
+_WORKFLOW_NAME = "ledger-sense"
 
 
 def _redact_value(value: Any) -> Any:
@@ -93,67 +74,69 @@ def _redact_value(value: Any) -> Any:
     return value
 
 
-def _parse_stdout_metadata(captured: str) -> dict:
-    """Best-effort span enrichment from the wrapped call's own stdout.
+def _init(cfg: Config) -> None:
+    """Lazily import and initialize the real Neatlogs SDK.
 
-    This is the only way the single wrap point sees row counts/verdict
-    breakdowns/LLM stats without a second edit to the entrypoint files
-    (see module docstring). Never raises -- an unparseable line is simply
-    not included, it never breaks the span or the wrapped call.
+    Module-level API, not a client instance -- there is no ``neatlogs.Client``
+    (that was W10's bug; confirmed against the real installed package by
+    W14's live smoke test). Only ever called when ``cfg.tracing_enabled()``
+    is True, from inside ``traced_run``'s own broad ``except Exception`` --
+    so a missing ``neatlogs`` package (the base install stays
+    dependency-free, L20) or a real init failure never crashes the caller.
+
+    Every test in this repo (L20) monkeypatches ``_init``/``_span``/
+    ``_flush`` directly with fakes -- none ever reaches the real
+    ``import neatlogs`` below.
     """
-    metadata: dict = {}
-    lines = captured.splitlines()
+    import neatlogs  # noqa: PLC0415 -- deliberately lazy, and BEFORE any openai import
 
-    if lines:
-        for segment in lines[0].split(";"):
-            if "=" not in segment:
-                continue
-            key, _, value = segment.partition("=")
-            key = key.strip().lower().replace(" ", "_")
-            value = value.strip()
-            if key and _INT_VALUE_RE.match(value):
-                metadata[key] = int(value)
-
-    verdicts = {}
-    for line in lines:
-        match = _VERDICT_RE.match(line.strip())
-        if match:
-            verdicts[match.group(1)] = int(match.group(2))
-    if verdicts:
-        metadata["guardrail_verdicts"] = verdicts
-
-    for line in lines:
-        calls_match = _LLM_CALLS_RE.search(line)
-        if calls_match:
-            metadata["llm_calls"] = int(calls_match.group(1))
-        stub_match = _LLM_STUB_RE.search(line)
-        if stub_match:
-            metadata["llm_is_stub"] = stub_match.group(1) == "True"
-
-    return metadata
+    neatlogs.init(api_key=cfg.neatlogs_api_key, workflow_name=_WORKFLOW_NAME)
 
 
-class _Tee:
-    """Forwards every write to the real stream while also buffering a copy,
-    so tracing can read a CLI's own stdout without changing what actually
-    reaches the terminal (or a test's ``capsys``/``subprocess`` capture)."""
+def _span(agent_name: str) -> Any:
+    """Open one Neatlogs span (``kind=WORKFLOW``) for this agent run.
 
-    def __init__(self, original):
-        self._original = original
-        self._chunks: list[str] = []
+    Returns the SDK's own context-manager object; ``traced_run`` enters and
+    exits it itself (rather than using ``with neatlogs.span(...):`` directly)
+    so a failure entering or exiting it can be caught and degraded exactly
+    like every other tracing failure (L18).
+    """
+    import neatlogs  # noqa: PLC0415
 
-    def write(self, text: str) -> int:
-        self._chunks.append(text)
-        return self._original.write(text)
+    kind = getattr(neatlogs, "WORKFLOW", "WORKFLOW")
+    return neatlogs.span(kind=kind, name=agent_name)
 
-    def flush(self) -> None:
-        self._original.flush()
 
-    def __getattr__(self, name):
-        return getattr(self._original, name)
+def _flush() -> None:
+    """Flush/shut down the Neatlogs SDK -- called once, at the end of this
+    process's single ``traced_run`` block (i.e. "on CLI exit"). Tries both
+    ``flush()`` and ``shutdown()``, whichever the installed SDK actually
+    exposes; calling neither is not an error (nothing to flush)."""
+    import neatlogs  # noqa: PLC0415
 
-    def getvalue(self) -> str:
-        return "".join(self._chunks)
+    for name in ("flush", "shutdown"):
+        fn = getattr(neatlogs, name, None)
+        if callable(fn):
+            fn()
+
+
+def _attach_metadata(span: Any, metadata: dict) -> None:
+    """Best-effort, redacted metadata attachment onto ``span``.
+
+    Tries whichever tagging method the real span object exposes
+    (``add_tags`` first, then per-key ``set_attribute``); does nothing if
+    neither exists. Never raises -- callers wrap this in their own
+    ``except Exception`` too, but this never needs it to (L18/L19).
+    """
+    redacted = _redact_value(metadata)
+    add_tags = getattr(span, "add_tags", None)
+    if callable(add_tags):
+        add_tags(redacted)
+        return
+    set_attribute = getattr(span, "set_attribute", None)
+    if callable(set_attribute):
+        for key, value in redacted.items():
+            set_attribute(key, value)
 
 
 class traced_run(ContextDecorator):
@@ -170,24 +153,37 @@ class traced_run(ContextDecorator):
     def __init__(self, agent_name: str, **metadata: Any) -> None:
         self._agent_name = agent_name
         self._static_metadata = metadata
-        self._cfg: Config | None = None
         self._enabled = False
         self._start = 0.0
-        self._tee: _Tee | None = None
-        self._orig_stdout = None
+        self._initialized = False
+        self._span_cm: Any = None
+        self._span: Any = None
 
     def __enter__(self) -> "traced_run":
         # A fresh read (not the module-level singleton) so a caller that
         # mutated the environment/`.env` since import time -- every test in
         # this repo, via monkeypatch -- is honored (see config.py's own
         # docstring on `load_config` vs. the singleton).
-        self._cfg = load_config()
-        self._enabled = self._cfg.tracing_enabled()
+        cfg = load_config()
+        self._enabled = cfg.tracing_enabled()
         self._start = time.monotonic()
-        if self._enabled:
-            self._orig_stdout = sys.stdout
-            self._tee = _Tee(sys.stdout)
-            sys.stdout = self._tee
+        if not self._enabled:
+            return self  # true no-op: nothing is imported, nothing is touched
+
+        try:
+            _init(cfg)
+            self._initialized = True
+        except Exception as exc:
+            print(f"tracing: neatlogs init failed -- {exc}", file=sys.stderr)
+            return self  # pipeline continues without a span (L18)
+
+        try:
+            self._span_cm = _span(self._agent_name)
+            self._span = self._span_cm.__enter__()
+        except Exception as exc:
+            print(f"tracing: neatlogs span failed -- {exc}", file=sys.stderr)
+            self._span_cm = None
+            self._span = None
         return self
 
     def __exit__(self, exc_type, exc, tb) -> bool:
@@ -195,28 +191,27 @@ class traced_run(ContextDecorator):
         if not self._enabled:
             return False  # true no-op: nothing was touched, nothing to undo
 
-        captured = ""
-        if self._tee is not None:
-            sys.stdout = self._orig_stdout
-            captured = self._tee.getvalue()
+        if self._span is not None:
+            try:
+                metadata = dict(self._static_metadata)
+                metadata["duration_seconds"] = duration_seconds
+                metadata["status"] = "error" if exc is not None else "ok"
+                if exc is not None:
+                    metadata["error"] = f"{type(exc).__name__}: {exc}"
+                _attach_metadata(self._span, metadata)
+            except Exception:
+                pass  # tracing must never crash or change the pipeline (L18)
 
-        try:
-            self._emit_span(duration_seconds, captured, exc)
-        except Exception:
-            pass  # tracing must never crash or change the pipeline (L18)
+        if self._span_cm is not None:
+            try:
+                self._span_cm.__exit__(exc_type, exc, tb)
+            except Exception:
+                pass
+
+        if self._initialized:
+            try:
+                _flush()
+            except Exception as flush_exc:
+                print(f"tracing: neatlogs flush failed -- {flush_exc}", file=sys.stderr)
 
         return False  # never swallow the wrapped call's own exception
-
-    def _emit_span(self, duration_seconds: float, captured: str, exc: BaseException | None) -> None:
-        metadata = dict(self._static_metadata)
-        metadata.update(_parse_stdout_metadata(captured))
-        metadata["duration_seconds"] = duration_seconds
-        metadata["status"] = "error" if exc is not None else "ok"
-        if exc is not None:
-            metadata["error"] = f"{type(exc).__name__}: {exc}"
-
-        payload = {"agent": self._agent_name, **metadata}
-        payload = _redact_value(payload)
-
-        client = _build_client(self._cfg)
-        client.send(payload)

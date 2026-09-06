@@ -24,6 +24,7 @@ tracing = ["neatlogs"]
 ledger-sense-generate = "ledger_sense.data.cli:main"
 ledger_sense = "ledger_sense.learning.cli:main"
 ledger_sense-scoreboard = "ledger_sense.metrics.cli:main"
+ledger-sense-desk = "ledger_sense.operator.cli:main_desk"
 
 [tool.setuptools.packages.find]
 where = ["src"]
