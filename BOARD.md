@@ -680,7 +680,14 @@ routing/guardrail/learning/metrics; widen adjudication beyond the existing gray-
 ---
 
 ### CARD W10 — Neatlogs tracing
-**Status:** spawned (now that W9/W11/W12/W13 are all merged, per the collision-avoidance sequencing below)
+**Status:** merged (PR #14, `f0c5b2b`, squash-merged by orchestrator per standing human
+authorization). Verified before merge: exactly a 2-line wrap (import + decorator) in each of
+the six entrypoints, zero float, zero eager `neatlogs` import; guardrail's real logic lives in
+`cli.py` not `__main__.py` (a pure delegator) -- worker correctly decorated the file where
+`main()` actually lives, matching the existing `learning`/`metrics` shape, rather than
+mechanically following the card's literal file list. 27 new tests incl. a byte-identical
+subprocess regression across all 6 entrypoints and the real neatlogs-absent graceful-degrade
+path. Full suite 434 passed at merge (up from 407).
 **Depends:** W8 merged AND W9 AND W11 AND W12 AND W13 all merged (orchestrator correction from
 the original PRD's "parallel with W9/W11/W12/W13": W10 wraps every agent entrypoint — `data`,
 `matching`, `routing`, `guardrail` `__main__.py` files plus `learning/cli.py` and
@@ -867,7 +874,7 @@ add a 6th category.
 ---
 
 ### CARD W14 — v2 ship: metrics v2 + docs + live smoke test
-**Status:** todo
+**Status:** spawned
 **Depends:** W9 AND W10 AND W11 AND W12 AND W13 merged
 **Branch:** `w14-v2-ship`
 **Reads:** everything above, v1's `README.md`/`DEMO.md`/`BOARD.md`
