@@ -14,7 +14,9 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Optional
 
-from . import roster
+from ledger_sense.config import config
+
+from . import llm_classifier, roster
 from .classify import classify_bank, classify_book, select_pairs
 from .clock import compute as compute_clock
 from .clock import parse_iso, severity_for, sla_hours_for
@@ -91,6 +93,19 @@ def _bank_subject(row: dict, ledger_rows: dict, bank_rows: dict, subject_kind: s
     if subject_kind == "pair":
         detail = f"pair-and-suppress: ledger {ledger_id} unclaimed; {detail}"
 
+    # W13: OpenAI routing fallback -- only classify_bank's rule 7
+    # (unidentified_counterpart, "no earlier condition matched") is ever
+    # eligible; rules 1-6 above are returned as-is and this branch never runs
+    # for them (llm_classifier.apply_llm_fallback re-checks that marker
+    # itself too, as defense in depth). Absent OPENAI_API_KEY,
+    # config.openai_enabled() is False and this whole branch is skipped --
+    # v1's rule-7 output is untouched (L18). The guardrail never reads this
+    # category/detail or exceptions.csv at all, so it is unaffected (L21).
+    llm_confidence = None
+    if config.openai_enabled():
+        category, detail, llm_confidence = llm_classifier.apply_llm_fallback(
+            config, bank_txn_id, row["reason"], row["relation"], features, category, detail)
+
     if ledger_id and ledger_id in ledger_rows:
         counterparty_label = ledger_rows[ledger_id]["counterparty_name"]
     else:
@@ -106,6 +121,9 @@ def _bank_subject(row: dict, ledger_rows: dict, bank_rows: dict, subject_kind: s
         "currency_score": features.get("currency"),
         "top_candidate_ledger_id": row["ledger_id"],
     }
+    if llm_confidence is not None:
+        evidence["llm_classified"] = True
+        evidence["llm_confidence"] = str(llm_confidence)
 
     return Subject(
         subject_kind=subject_kind,
