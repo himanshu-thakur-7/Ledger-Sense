@@ -25,3 +25,7 @@ htmlcov/
 # Bulk generated data (see W1) — generator code under src/ledger_sense/data/
 # is never ignored, only its CSV output.
 data/pass*/*.csv
+
+# Real secrets (see W8, .env.example) — .env.example is the checked-in
+# template; .env itself must never be committed.
+.env
