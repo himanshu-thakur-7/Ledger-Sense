@@ -939,3 +939,96 @@ passed, 2 skipped.
 
 **Laws:** all of L1–L22
 **Stop.**
+
+---
+
+## v2 follow-up cards (W15, W16) — fixing what the live smoke test found
+
+W14's real live-mode run (not a mock) found two integrations that build clean, test clean, and
+degrade gracefully (L18 held in both cases — nothing crashed) but don't actually work against
+the real third-party service. These are the fixes. Disjoint files, run in parallel.
+
+### CARD W15 — Fix Neatlogs tracing against the real SDK
+**Status:** ready to spawn
+**Depends:** W10 merged (already is)
+**Branch:** `w15-neatlogs-fix`
+**Reads:** `LEDGER-SENSE-v2-PRD.md`, `src/ledger_sense/tracing.py` (current, broken
+`_build_client`), the *actual installed* `neatlogs` package (introspect it directly —
+`python -c "import neatlogs; help(neatlogs)"` / read its real source — do not guess the API
+from memory or from what W14's bug report said secondhand; confirm firsthand)
+**Writes / may touch:**
+- `src/ledger_sense/tracing.py`
+- `tests/test_tracing.py`
+
+**Must implement:**
+- Replace `_build_client`'s use of a nonexistent `neatlogs.Client(...)` with whatever the real
+  installed `neatlogs` package (v1.1.8 or whatever is currently installed) actually exposes —
+  W14 found `init`/`get_tracker`/`LLMTracker`/`add_tags` as real top-level names, but verify
+  firsthand and use whichever combination actually sends a span, not a guess.
+- Preserve every existing contract exactly: no-op when `tracing_enabled()` is False, redaction
+  before emission (L19), broad-exception-never-crashes-the-CLI (L18), lazy import (base install
+  stays dependency-free).
+- Add a real-SDK integration test (not just a mock) that actually calls into the installed
+  `neatlogs` package with a fake/test API key and confirms a span-send call succeeds without
+  raising — this is the test that would have caught W10's bug and must not regress again.
+
+**Must not:** touch any of the six entrypoint files (their wrap points are correct and already
+merged — only `tracing.py` itself was wrong); touch matching/routing/guardrail/learning/data
+logic; widen scope beyond fixing the actual client construction/send call.
+
+**Acceptance:**
+1. A real (non-mocked) call through `tracing.py` against the installed `neatlogs` package
+   actually sends a span without raising — proven by a real integration test, not just a mock
+2. All existing `test_tracing.py` mocked/regression/redaction/error-resilience tests still pass
+   unmodified in spirit (update them only if the real API shape requires it — don't weaken them)
+3. Re-run the exact W14 smoke-test scenario (or an equivalent) and confirm trace-coverage is no
+   longer 0/4 — document the real, measured coverage number in the PR
+4. Full offline suite stays green with zero live network calls in the *mocked* tests (the one
+   new real-SDK test may use a real but harmless local call if the SDK requires no network for
+   client construction — if it genuinely requires network even for construction, mark that one
+   test `@pytest.mark.slow`/opt-in like W6's real-batch tests, don't make CI require a live key)
+
+**Laws:** L18, L19, L20
+**Stop.**
+
+---
+
+### CARD W16 — Fix Dodo Payments sandbox request shape + error handling
+**Status:** ready to spawn
+**Depends:** W11 merged (already is)
+**Branch:** `w16-dodo-fix`
+**Reads:** `LEDGER-SENSE-v2-PRD.md`, `src/ledger_sense/data/dodo_source.py` (current, gets 403),
+`src/ledger_sense/data/cli.py` (current error handling), Dodo Payments' actual sandbox API
+documentation (look it up directly — do not guess the endpoint/auth shape a second time)
+**Writes / may touch:**
+- `src/ledger_sense/data/dodo_source.py`
+- `src/ledger_sense/data/cli.py`
+- `tests/test_dodo_source.py`
+
+**Must implement:**
+- Find the actual cause of the 403 against `https://test.dodopayments.com/payments` — likely
+  wrong auth header shape (e.g. `Authorization: Bearer <key>` vs a custom header), wrong base
+  URL, or wrong endpoint path for a sandbox "list transactions" call. Fix the real request.
+- Fix `cli.py`'s error handling gap W14 found: a *configured-but-failing* key (`DodoAPIError`)
+  must degrade as cleanly as an *absent* key (`DodoNotConfiguredError`) — a clean one-line
+  stderr message and nonzero exit, never a raw traceback (L18).
+- Preserve every existing contract: pull-then-synthesize pairing strategy, idempotency,
+  `BankTransaction` shape compatibility, `LEDGER_SENSE_DATA_SOURCE` switch behavior.
+
+**Must not:** touch matching/routing/guardrail/learning logic; touch `dodo_pairing.py`'s pairing
+logic itself (only the source/request layer and error handling); any live (non-sandbox) Dodo
+calls; any payment creation.
+
+**Acceptance:**
+1. A real (non-mocked, opt-in/slow-marked if it needs the live key) call against Dodo's real
+   sandbox endpoint returns a real 200 with real transaction data, or a real, specific,
+   documented reason it still can't (e.g. "sandbox account has zero transactions" is an
+   acceptable real 200-empty outcome; a 403 is not — that's still a bug)
+2. `DodoAPIError` (configured key, real API failure) now produces a clean one-line message and
+   nonzero exit, proven by a test that forces a real error response
+3. All existing mocked `test_dodo_source.py` tests still pass
+4. Re-run the exact W14 smoke-test scenario (or an equivalent) and confirm the Dodo pull no
+   longer 403s — document the real, measured outcome in the PR
+
+**Laws:** L3, L18, L19, L20
+**Stop.**
