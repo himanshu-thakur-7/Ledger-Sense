@@ -24,6 +24,7 @@ import sys
 from typing import Optional
 
 from ..config import Config, load_config
+from ..tracing import traced_run
 from .dodo_source import (
     DodoClient,
     DodoNotConfiguredError,
@@ -78,6 +79,7 @@ def write_dataset(dataset: GeneratedDataset, out_dir: str) -> None:
     )
 
 
+@traced_run("data")
 def main(argv=None, *, config: Optional[Config] = None, client: Optional[DodoClient] = None) -> int:
     """``config``/``client`` are injectable (default: real env / real transport)
     so tests never touch the real environment or network (law L20) -- see

@@ -2,11 +2,13 @@
 
 import argparse
 
+from ..tracing import traced_run
 from .adjudication import NoneAdjudicator, StubAdjudicator
 from .io import run
 from .llm_adjudicator import get_adjudicator
 
 
+@traced_run("matching")
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Agent 1 deterministic cheap matcher + zero-cost stub")
     parser.add_argument("--ledger", required=True)

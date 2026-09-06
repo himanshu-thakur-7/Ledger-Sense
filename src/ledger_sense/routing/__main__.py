@@ -3,9 +3,11 @@
 import argparse
 from collections import Counter
 
+from ..tracing import traced_run
 from .io import run
 
 
+@traced_run("routing")
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Agent 2 ownership / routing (spec §6)")
     parser.add_argument("--outcomes", required=True, help="Agent 1's match_outcomes.csv")

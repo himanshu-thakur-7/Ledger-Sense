@@ -21,6 +21,7 @@ from typing import Optional
 from ledger_sense.config import load_config
 from ledger_sense.data.io_csv import write_csv
 from ledger_sense.guardrail import load_policy
+from ledger_sense.tracing import traced_run
 
 from . import io as learning_io
 from . import llm_rationale
@@ -247,6 +248,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     return parser
 
 
+@traced_run("learning")
 def main(argv=None) -> int:
     args = build_arg_parser().parse_args(argv)
     return args.func(args)
