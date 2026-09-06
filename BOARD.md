@@ -523,15 +523,17 @@ shipped); v2 does not relitigate those.
 ```
 W8 config/secrets foundation (no dependencies)
   ├─ W9  OpenAI matching adjudicator         ⎤
-  ├─ W10 Neatlogs tracing                    ⎥ parallel, all depend only on W8
-  ├─ W11 Dodo Payments sandbox source        ⎦
-  ├─ W12 OpenAI rationale assist               (ideally after W9 — shares llm_client.py)
-  └─ W13 OpenAI routing fallback               (ideally after W9 — shares llm_client.py)
+  ├─ W11 Dodo Payments sandbox source        ⎥ fully parallel, mutually disjoint files,
+  ├─ W12 OpenAI rationale assist              ⎥ all depend only on W8
+  └─ W13 OpenAI routing fallback             ⎦
+       └─ W10 Neatlogs tracing (wraps every entrypoint — must come AFTER W9/W11/W12/W13,
+       │  not parallel with them; see W10's card for why the original PRD's parallel plan
+       │  would have collided on 3 of 4 entrypoint files)
        └─ W14 metrics v2 + docs + live smoke test (needs W9, W10, W11, W12, W13 all merged)
 ```
 
-W9–W13 do not spawn until the locked decisions below are settled (they are — see next
-section). W14 does not spawn until W9, W10, W11, W12, AND W13 are all merged.
+W9, W11, W12, W13 spawn together now that the locked decisions below are settled. W10 waits
+for all four. W14 waits for W10 plus the rest.
 
 ## Locked decisions (human-approved, round 1)
 
@@ -672,8 +674,17 @@ routing/guardrail/learning/metrics; widen adjudication beyond the existing gray-
 ---
 
 ### CARD W10 — Neatlogs tracing
-**Status:** spawned
-**Depends:** W8 merged (MAY run in parallel with W9/W11/W12/W13)
+**Status:** todo — deliberately held, not spawned yet
+**Depends:** W8 merged AND W9 AND W11 AND W12 AND W13 all merged (orchestrator correction from
+the original PRD's "parallel with W9/W11/W12/W13": W10 wraps every agent entrypoint — `data`,
+`matching`, `routing`, `guardrail` `__main__.py` files plus `learning/cli.py` and
+`metrics/cli.py`. That collides with W9 (`matching/__main__.py`), W11 (`data`'s entrypoint,
+`--source dodo` flag), and W12 (`learning/cli.py`'s `resolve` command) — three of the other
+four v2 cards. W13 is the one exception: it edits `routing/engine.py`, not `routing/
+__main__.py`, so it doesn't actually collide with W10 — but running W10 dead last, after all
+four, is simpler and safer than tracking that one exception by hand. W9/W11/W12/W13 ARE fully
+mutually disjoint from each other (each owns its own agent package + its own entrypoint file)
+and run in parallel; W10 is the only one that must wait for all of them.)
 **Branch:** `w10-tracing`
 **Reads:** `LEDGER-SENSE-v2-PRD.md`, `config.py` (`tracing_enabled()`), each agent's existing
 `__main__.py`/`cli.py` (read only, to find the minimal wrap point)
@@ -757,8 +768,9 @@ calls; any payment creation/processing — read-only listing of existing sandbox
 ---
 
 ### CARD W12 — OpenAI resolution-learning rationale assist
-**Status:** todo
-**Depends:** W8 merged, ideally after W9 merged (shares `llm_client.py`)
+**Status:** spawned
+**Depends:** W8 merged (`llm_client.py`'s interface is fixed by W8, not W9 — no need to wait
+for W9; runs in parallel with W9/W11/W13, mutually disjoint files)
 **Branch:** `w12-openai-rationale`
 **Reads:** `LEDGER-SENSE-v2-PRD.md`, `config.py` + `llm_client.py`, `learning/resolution.py`
 (schema, read only), `learning/predicate.py` (vocabulary, read only)
@@ -794,8 +806,9 @@ auto-promote anything.
 ---
 
 ### CARD W13 — OpenAI routing fallback classifier
-**Status:** todo
-**Depends:** W8 merged, ideally after W9 merged (shares `llm_client.py`)
+**Status:** spawned
+**Depends:** W8 merged (`llm_client.py`'s interface is fixed by W8, not W9 — no need to wait
+for W9; runs in parallel with W9/W11/W12, mutually disjoint files)
 **Branch:** `w13-openai-routing-fallback`
 **Reads:** `LEDGER-SENSE-v2-PRD.md`, `config.py` + `llm_client.py`, `routing/classify.py`
 (existing classifier, read only)
