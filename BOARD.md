@@ -356,7 +356,19 @@ Agent 4 policies — those are Agent 1's guardrail-interlock (§5.6), already im
 ---
 
 ### CARD W5 — Agent 3 Resolution-Learning (CORE BET)
-**Status:** spawned
+**Status:** merged (PR #6, `6cb93bc`, squash-merged by orchestrator per explicit human
+authorization). Verified before merge: zero `match_links`/matching-or-routing-internals
+references in any `learning/` source file (only in its own isolation test); only cross-agent
+import is guardrail's public `would_block_or_hold`; `pyproject.toml`'s only change is a
+console-script entry + pytest marker. Real seed=42 measurement on an independently-generated
+pass-2 batch: a promoted fee-offset-shaped predicate (no counterparty in it — generalizes by
+shape) resolved 8/8 matching escalated lines, 0 vetoed, STR 23839/27270 → 23847/27270 (delta ==
+rule-hit count exactly), the exception class went 8 rows → 0 rows. A control run without
+`rules.json` still shows all 8 exceptions (L6 held). A misconfigured guardrail period correctly
+vetoed all 8 candidate hits in a real run — L12 confirmed live, not just unit-tested.
+`manual_one_off` created zero rule entries. 251/251 tests passed in the worker's own run (data
+present); 249/2-skipped in orchestrator's post-merge sanity check (no local `data/pass1`, as
+expected — that data is gitignored).
 **Depends:** W2 AND W3 AND W4 merged
 **Branch:** `w5-learning`
 **Reads:** `exceptions.csv`; one structured human resolution; Agent 4 veto API
@@ -410,7 +422,7 @@ Agent 4 policies — those are Agent 1's guardrail-interlock (§5.6), already im
 ---
 
 ### CARD W6 — Agent 5 Metrics Orchestrator
-**Status:** todo
+**Status:** spawned
 **Depends:** W5 merged
 **Branch:** `w6-metrics`
 **Reads:** pass1 + pass2 outputs of agents 1–4; `match_links.csv` ALLOWED here only
