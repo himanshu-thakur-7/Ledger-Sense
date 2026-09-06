@@ -17,6 +17,7 @@ dev = ["pytest>=7.0"]
 [project.scripts]
 ledger-sense-generate = "ledger_sense.data.cli:main"
 ledger_sense = "ledger_sense.learning.cli:main"
+ledger_sense-scoreboard = "ledger_sense.metrics.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
