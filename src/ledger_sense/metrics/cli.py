@@ -72,9 +72,20 @@ def cmd_scoreboard(args) -> int:
                 "apply-rules CLI before routing -- spec §7.4)"
             )
         rule_hits = metrics_io.read_rule_hits(rule_hits_path)
+        # v2 (LEDGER-SENSE-v2-PRD.md W14), all optional/additive -- omitted
+        # entirely on a v1/offline invocation (every flag below defaults to
+        # None), so build_scoreboard's v2 section reports each sub-metric
+        # "measured: False" rather than a fabricated number (see its own
+        # docstring).
+        adjudicator_stub = _load_pass(args.adjudicator_stub_dir) if args.adjudicator_stub_dir else None
+        adjudicator_llm = _load_pass(args.adjudicator_llm_dir) if args.adjudicator_llm_dir else None
         scoreboard = build_scoreboard(
             pass1=pass1, pass2=pass2, rules=rules, rule_hits=rule_hits,
             pass1_dir=args.pass1_dir, pass2_dir=args.pass2_dir, rules_path=args.rules,
+            llm_cost_usd=args.llm_cost_usd,
+            adjudicator_stub=adjudicator_stub, adjudicator_llm=adjudicator_llm,
+            stub_duration_seconds=args.stub_duration_seconds, live_duration_seconds=args.live_duration_seconds,
+            entrypoints_run=args.entrypoints_run, spans_emitted=args.spans_emitted,
         )
     except (metrics_io.MetricsInputError, ScoreboardError) as exc:
         print(f"scoreboard refused: {exc}", file=sys.stderr)
@@ -99,6 +110,43 @@ def build_arg_parser() -> argparse.ArgumentParser:
     sb.add_argument("--pass2-dir", required=True, dest="pass2_dir")
     sb.add_argument("--rules", default="rules.json", help="rules.json to trace pass-2 auto-resolves against")
     sb.add_argument("--out", default="scoreboard.json", help="where to write the scoreboard JSON")
+    # v2 (LEDGER-SENSE-v2-PRD.md W14) -- every flag below is optional and
+    # additive; omit all of them for byte-identical v1 behavior (see
+    # scoreboard.build_scoreboard's docstring on the "measured: False"
+    # default). None are ever computed by this CLI itself -- each is a
+    # caller-supplied measurement of a run that already happened, consistent
+    # with this agent's "computed only from files/args already given" design.
+    sb.add_argument(
+        "--llm-cost-usd", dest="llm_cost_usd", default=None,
+        help="v2: real OpenAI $ spent this run, as measured by the caller off the real "
+        "OpenAIAdjudicator's LLMClient.cumulative_cost_usd -- never estimated here",
+    )
+    sb.add_argument(
+        "--adjudicator-stub-dir", dest="adjudicator_stub_dir", default=None,
+        help="v2: a pass directory (same required files as --pass1-dir) produced with "
+        "--adjudicator stub against the SAME underlying batch as --adjudicator-llm-dir",
+    )
+    sb.add_argument(
+        "--adjudicator-llm-dir", dest="adjudicator_llm_dir", default=None,
+        help="v2: a pass directory produced with --adjudicator auto (real key configured) "
+        "against the SAME underlying batch as --adjudicator-stub-dir",
+    )
+    sb.add_argument(
+        "--stub-duration-seconds", dest="stub_duration_seconds", default=None,
+        help="v2: wall-clock seconds for the synthetic+stub run being compared (decimal string)",
+    )
+    sb.add_argument(
+        "--live-duration-seconds", dest="live_duration_seconds", default=None,
+        help="v2: wall-clock seconds for the full live-mode run being compared (decimal string)",
+    )
+    sb.add_argument(
+        "--entrypoints-run", dest="entrypoints_run", type=int, default=None,
+        help="v2: count of agent CLI entrypoints run this session, for Neatlogs trace-coverage",
+    )
+    sb.add_argument(
+        "--spans-emitted", dest="spans_emitted", type=int, default=None,
+        help="v2: count of those entrypoints that actually emitted a Neatlogs span",
+    )
     sb.set_defaults(func=cmd_scoreboard)
 
     return parser

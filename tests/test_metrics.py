@@ -28,13 +28,18 @@ from ledger_sense.data.money import cents, from_cents, to_money
 from ledger_sense.data.models import BANK_COLUMNS, LEDGER_COLUMNS, MATCH_LINK_COLUMNS, BankTransaction, LedgerEntry, MatchLink
 from ledger_sense.metrics import io as metrics_io
 from ledger_sense.metrics.classify import amount_bucket, class_histogram, exception_class, reference_pattern
+from ledger_sense.metrics.report import render_report
 from ledger_sense.metrics.scoreboard import (
     ScoreboardError,
+    adjudicator_lift,
     build_scoreboard,
     ground_truth_map,
     guardrail_split,
+    latency_delta,
+    llm_cost_summary,
     real_straight_through,
     straight_through,
+    trace_coverage,
 )
 
 # ---------------------------------------------------------------------------
@@ -273,6 +278,157 @@ def test_build_scoreboard_happy_path_reports_class_elimination_and_full_trace():
     json.dumps(scoreboard, sort_keys=True)
 
 
+def test_build_scoreboard_v2_section_defaults_to_unmeasured_when_no_v2_args_given():
+    # Byte-for-byte the same call shape every v1/offline caller already uses --
+    # W14's v2 keyword args are 100% additive, never required.
+    pass1 = _minimal_pass()
+    pass2 = _minimal_pass()
+    scoreboard = build_scoreboard(pass1=pass1, pass2=pass2, rules=[], rule_hits=[],
+                                   pass1_dir="p1", pass2_dir="p2", rules_path="rules.json")
+    assert scoreboard["v2"] == {
+        "llm_cost": {"measured": False},
+        "adjudicator_lift": {"measured": False},
+        "latency_delta": {"measured": False},
+        "trace_coverage": {"measured": False},
+    }
+    json.dumps(scoreboard, sort_keys=True)
+
+
+def test_build_scoreboard_v2_adjudicator_lift_from_stub_and_llm_dirs():
+    # Same underlying batch (BK-1/BK-2), matched twice: the stub run resolves
+    # only BK-1 straight-through-correct; the real-adjudicator run additionally
+    # resolves BK-2 -- one real STR point gained, attributable to the real
+    # adjudicator only (not to a different/easier batch).
+    match_links = [{"bank_txn_id": "BK-1", "ledger_id": "LG-1"}, {"bank_txn_id": "BK-2", "ledger_id": "LG-2"}]
+    settlements = [_settlement("LG-1"), _settlement("LG-2")]
+    stub_dir = _minimal_pass(
+        outcomes=[_outcome("BK-1", "LG-1"), _outcome("BK-2", "LG-2", status="escalated")],
+        settlements=settlements, match_links=match_links,
+    )
+    llm_dir = _minimal_pass(
+        outcomes=[_outcome("BK-1", "LG-1"), _outcome("BK-2", "LG-2")],
+        settlements=settlements, match_links=match_links,
+    )
+    pass1 = _minimal_pass()
+    pass2 = _minimal_pass()
+    scoreboard = build_scoreboard(
+        pass1=pass1, pass2=pass2, rules=[], rule_hits=[], pass1_dir="p1", pass2_dir="p2", rules_path="rules.json",
+        llm_cost_usd="0.02", adjudicator_stub=stub_dir, adjudicator_llm=llm_dir,
+        stub_duration_seconds="10.5", live_duration_seconds="14.25",
+        entrypoints_run=6, spans_emitted=6,
+    )
+    v2 = scoreboard["v2"]
+    assert v2["llm_cost"] == {"measured": True, "total_cost_usd": "0.02"}
+    assert v2["adjudicator_lift"]["measured"] is True
+    assert v2["adjudicator_lift"]["stub_straight_through_correct"] == 1
+    assert v2["adjudicator_lift"]["llm_straight_through_correct"] == 2
+    assert v2["adjudicator_lift"]["str_points_gained"] == 1
+    assert v2["adjudicator_lift"]["cost_per_str_point_usd"] == "0.0200"
+    assert v2["latency_delta"] == {
+        "measured": True, "stub_duration_seconds": "10.5", "live_duration_seconds": "14.25", "delta_seconds": "3.75",
+    }
+    assert v2["trace_coverage"] == {
+        "measured": True, "entrypoints_run": 6, "spans_emitted": 6, "coverage_pct": "100.00",
+    }
+    json.dumps(scoreboard, sort_keys=True)
+
+
+# ---------------------------------------------------------------------------
+# v2 (LEDGER-SENSE-v2-PRD.md W14) -- pure sub-metric functions
+# ---------------------------------------------------------------------------
+
+
+def test_llm_cost_summary_unmeasured_by_default():
+    assert llm_cost_summary(llm_cost_usd=None) == {"measured": False}
+
+
+def test_llm_cost_summary_reports_a_measured_cost_as_a_string_never_a_float():
+    result = llm_cost_summary(llm_cost_usd="0.1234")
+    assert result == {"measured": True, "total_cost_usd": "0.1234"}
+    assert isinstance(result["total_cost_usd"], str)
+
+
+def test_adjudicator_lift_reports_none_cost_per_point_when_cost_not_measured():
+    stub_real = {"straight_through_correct": 1, "real_str_pct": "50.00"}
+    llm_real = {"straight_through_correct": 2, "real_str_pct": "100.00"}
+    result = adjudicator_lift(stub_str_real=stub_real, llm_str_real=llm_real, llm_cost_usd=None)
+    assert result["str_points_gained"] == 1
+    assert result["cost_per_str_point_usd"] is None
+
+
+def test_adjudicator_lift_reports_none_cost_per_point_when_no_str_gain_measured():
+    # The real adjudicator resolved nothing extra this run -- dividing a real
+    # dollar spend by a zero/negative gain would fabricate a cost figure.
+    stub_real = {"straight_through_correct": 2, "real_str_pct": "100.00"}
+    llm_real = {"straight_through_correct": 2, "real_str_pct": "100.00"}
+    result = adjudicator_lift(stub_str_real=stub_real, llm_str_real=llm_real, llm_cost_usd="0.05")
+    assert result["str_points_gained"] == 0
+    assert result["cost_per_str_point_usd"] is None
+
+
+def test_adjudicator_lift_computes_cost_per_str_point_gained():
+    stub_real = {"straight_through_correct": 1, "real_str_pct": "50.00"}
+    llm_real = {"straight_through_correct": 3, "real_str_pct": "150.00"}
+    result = adjudicator_lift(stub_str_real=stub_real, llm_str_real=llm_real, llm_cost_usd="0.10")
+    assert result["str_points_gained"] == 2
+    assert result["cost_per_str_point_usd"] == "0.0500"
+
+
+def test_latency_delta_unmeasured_by_default():
+    assert latency_delta(stub_duration_seconds=None, live_duration_seconds="5.0") == {"measured": False}
+    assert latency_delta(stub_duration_seconds="5.0", live_duration_seconds=None) == {"measured": False}
+
+
+def test_latency_delta_computes_seconds_as_strings():
+    result = latency_delta(stub_duration_seconds="2.50", live_duration_seconds="9.00")
+    assert result == {
+        "measured": True, "stub_duration_seconds": "2.50", "live_duration_seconds": "9.00", "delta_seconds": "6.50",
+    }
+
+
+def test_trace_coverage_unmeasured_by_default():
+    assert trace_coverage(entrypoints_run=None, spans_emitted=None) == {"measured": False}
+    assert trace_coverage(entrypoints_run=6, spans_emitted=None) == {"measured": False}
+
+
+def test_trace_coverage_computes_partial_coverage_pct():
+    result = trace_coverage(entrypoints_run=6, spans_emitted=5)
+    assert result == {"measured": True, "entrypoints_run": 6, "spans_emitted": 5, "coverage_pct": "83.33"}
+
+
+# ---------------------------------------------------------------------------
+# v2 -- report.py rendering
+# ---------------------------------------------------------------------------
+
+
+def test_render_report_omits_v2_section_when_nothing_measured():
+    pass1 = _minimal_pass()
+    pass2 = _minimal_pass()
+    scoreboard = build_scoreboard(pass1=pass1, pass2=pass2, rules=[], rule_hits=[],
+                                   pass1_dir="p1", pass2_dir="p2", rules_path="rules.json")
+    assert "v2 (live-mode)" not in render_report(scoreboard)
+
+
+def test_render_report_prints_v2_section_when_measured():
+    pass1 = _minimal_pass()
+    pass2 = _minimal_pass()
+    match_links = [{"bank_txn_id": "BK-1", "ledger_id": "LG-1"}]
+    settlements = [_settlement("LG-1")]
+    stub_dir = _minimal_pass(outcomes=[_outcome("BK-1", "LG-1", status="escalated")],
+                              settlements=settlements, match_links=match_links)
+    llm_dir = _minimal_pass(outcomes=[_outcome("BK-1", "LG-1")], settlements=settlements, match_links=match_links)
+    scoreboard = build_scoreboard(
+        pass1=pass1, pass2=pass2, rules=[], rule_hits=[], pass1_dir="p1", pass2_dir="p2", rules_path="rules.json",
+        llm_cost_usd="0.01", adjudicator_stub=stub_dir, adjudicator_llm=llm_dir,
+        stub_duration_seconds="1.0", live_duration_seconds="2.0", entrypoints_run=6, spans_emitted=6,
+    )
+    report = render_report(scoreboard)
+    assert "OpenAI cost this run: $0.01" in report
+    assert "Real adjudicator STR lift: 0 -> 1 (+1 points); cost/point: $0.0100" in report
+    assert "Latency delta (stub+synthetic vs. live): 1.0s -> 2.0s (delta 1.0s)" in report
+    assert "Neatlogs trace coverage: 6/6 (100.00%)" in report
+
+
 # ---------------------------------------------------------------------------
 # io.py -- refuse on missing/malformed input
 # ---------------------------------------------------------------------------
@@ -378,6 +534,102 @@ def test_cli_success_writes_scoreboard_json_byte_identical_across_reruns(tmp_pat
     scoreboard = json.loads(out1.read_text())
     assert scoreboard["learned_rule_count"] == 0
     assert scoreboard["pass1"]["str_naive"]["total"] == 0
+
+
+def _write_full_pass(d, *, outcomes, settlements, match_links):
+    """Like ``_write_empty_pass`` but with real ``match_outcomes.csv``/
+    ``ledger_settlements.csv``/``match_links.csv`` rows (every column
+    ``OUTCOME_COLUMNS``/``SETTLEMENT_COLUMNS``/``MATCH_LINK_COLUMNS``
+    requires) -- used by the v2 CLI test below to build a pass directory
+    that ``_load_pass`` (and so ``--adjudicator-stub-dir``/
+    ``--adjudicator-llm-dir``) can actually read."""
+    d.mkdir()
+    write_csv(str(d / "match_outcomes.csv"), metrics_io.OUTCOME_COLUMNS, outcomes)
+    write_csv(str(d / "ledger_settlements.csv"), metrics_io.SETTLEMENT_COLUMNS, settlements)
+    write_csv(str(d / "exceptions.csv"), metrics_io.EXCEPTION_COLUMNS, [])
+    write_csv(str(d / "owner_queues.csv"), metrics_io.QUEUE_COLUMNS, [])
+    write_csv(str(d / "release_decisions.csv"), metrics_io.RELEASE_COLUMNS, [])
+    write_csv(str(d / "guardrail_audit.csv"), metrics_io.AUDIT_COLUMNS, [])
+    write_csv(str(d / "match_links.csv"), metrics_io.MATCH_LINK_COLUMNS, match_links)
+
+
+def _full_outcome_row(bank_txn_id, ledger_id, status="matched"):
+    return {
+        "bank_txn_id": bank_txn_id, "status": status, "relation": "exact", "ledger_id": ledger_id,
+        "tier": "cheap", "score": "90", "margin": "10", "reason": "high_confidence", "reason_detail": "",
+        "matched_amount": "500.00", "residual_after": "0.00", "candidates": "[]", "features": "{}",
+        "llm_model": "", "llm_confidence": "", "llm_is_stub": "True",
+    }
+
+
+def _full_settlement_row(ledger_id):
+    return {
+        "ledger_id": ledger_id, "ledger_amount": "500.00", "matched_amount": "500.00", "residual": "0.00",
+        "n_parts": "1", "bank_txn_ids": "[]", "fully_settled": "True", "reason": "fully_settled",
+    }
+
+
+def test_cli_v2_flags_write_measured_v2_section(tmp_path):
+    pass1_dir, pass2_dir = tmp_path / "pass1", tmp_path / "pass2"
+    _write_empty_pass(pass1_dir)
+    _write_empty_pass(pass2_dir)
+    rules_path = tmp_path / "rules.json"
+    rules_path.write_text(json.dumps({"schema_version": 1, "rules": []}), encoding="utf-8")
+    write_csv(str(pass2_dir / "rule_hits.csv"), metrics_io.RULE_HIT_COLUMNS, [])
+
+    match_links = [{"bank_txn_id": "BK-1", "ledger_id": "LG-1"}]
+    _write_full_pass(
+        tmp_path / "adj_stub", outcomes=[_full_outcome_row("BK-1", "LG-1", status="escalated")],
+        settlements=[_full_settlement_row("LG-1")], match_links=match_links,
+    )
+    _write_full_pass(
+        tmp_path / "adj_llm", outcomes=[_full_outcome_row("BK-1", "LG-1")],
+        settlements=[_full_settlement_row("LG-1")], match_links=match_links,
+    )
+
+    out_path = tmp_path / "scoreboard.json"
+    result = run_cli([
+        "scoreboard", "--pass1-dir", str(pass1_dir), "--pass2-dir", str(pass2_dir),
+        "--rules", str(rules_path), "--out", str(out_path),
+        "--llm-cost-usd", "0.03", "--adjudicator-stub-dir", str(tmp_path / "adj_stub"),
+        "--adjudicator-llm-dir", str(tmp_path / "adj_llm"),
+        "--stub-duration-seconds", "4.0", "--live-duration-seconds", "6.5",
+        "--entrypoints-run", "6", "--spans-emitted", "6",
+    ], cwd=tmp_path)
+    assert result.returncode == 0, result.stderr
+    assert "OpenAI cost this run: $0.03" in result.stdout
+    assert "Neatlogs trace coverage: 6/6 (100.00%)" in result.stdout
+
+    scoreboard = json.loads(out_path.read_text())
+    assert scoreboard["v2"]["llm_cost"] == {"measured": True, "total_cost_usd": "0.03"}
+    assert scoreboard["v2"]["adjudicator_lift"]["str_points_gained"] == 1
+    assert scoreboard["v2"]["latency_delta"]["delta_seconds"] == "2.5"
+    assert scoreboard["v2"]["trace_coverage"]["coverage_pct"] == "100.00"
+
+
+def test_cli_without_v2_flags_keeps_v1_output_and_json_unchanged(tmp_path):
+    # No v2 flag given at all -- the exact call shape acceptance #5 (v1's own
+    # regression discipline) requires: byte-identical to a pre-W14 caller.
+    pass1_dir, pass2_dir = tmp_path / "pass1", tmp_path / "pass2"
+    _write_empty_pass(pass1_dir)
+    _write_empty_pass(pass2_dir)
+    rules_path = tmp_path / "rules.json"
+    rules_path.write_text(json.dumps({"schema_version": 1, "rules": []}), encoding="utf-8")
+    write_csv(str(pass2_dir / "rule_hits.csv"), metrics_io.RULE_HIT_COLUMNS, [])
+
+    out_path = tmp_path / "scoreboard.json"
+    result = run_cli(
+        ["scoreboard", "--pass1-dir", str(pass1_dir), "--pass2-dir", str(pass2_dir),
+         "--rules", str(rules_path), "--out", str(out_path)],
+        cwd=tmp_path,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "v2 (live-mode)" not in result.stdout
+    scoreboard = json.loads(out_path.read_text())
+    assert scoreboard["v2"] == {
+        "llm_cost": {"measured": False}, "adjudicator_lift": {"measured": False},
+        "latency_delta": {"measured": False}, "trace_coverage": {"measured": False},
+    }
 
 
 def test_cli_refuses_nonzero_when_pass2_rule_hits_missing(tmp_path):

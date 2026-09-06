@@ -34,10 +34,14 @@ pip install -e .
 Installs three console scripts — `ledger-sense-generate`, `ledger_sense`
 (`resolve`/`promote`/`apply-rules`), `ledger_sense-scoreboard` — plus `python -m
 ledger_sense.matching` / `.routing` / `.guardrail`, which have no dedicated console-script entry
-of their own. Run `pytest` — measured here: **277 passed, 2 skipped** (the 2 skips need a local
-`MATCHING_BATCH_DIR`/real batch on disk, which a fresh clone doesn't have; harmless). The `slow`
-marker (registered in `pyproject.toml`) covers the real-CLI end-to-end pipeline test — it runs by
-default; `pytest -m "not slow"` excludes it if you want the fast subset only (275 pass, 2 skip).
+of their own. Run `pytest` — measured here (v1's original **277 passed, 2 skipped**, plus v2's
+W8–W14 additions, all against mocked transports, zero live calls, per law L20): **449 passed, 2
+skipped**. The 2 skips need a local `MATCHING_BATCH_DIR`/real batch on disk, which a fresh clone
+doesn't have; harmless. The `slow` marker (registered in `pyproject.toml`) covers the real-CLI
+end-to-end pipeline tests — it runs by default; `pytest -m "not slow"` excludes it if you want the
+fast subset only. Add `[llm,dodo,tracing]` to the `pip install -e .` above only if you intend to
+exercise v2's optional live-mode integrations (see [v2 — real integrations](#v2--real-integrations-optional-live-mode-only)
+below) — the base install and every test above stay exactly as dependency-free as v1 shipped.
 
 ## The whole pipeline, run for real
 
@@ -231,6 +235,137 @@ are not scripted.* Pass 1's own overlay was not needed — the batch already had
 occurring class at the gate. The rule promoted and measured above was learned from a
 **naturally occurring** class, not the overlay; the overlay siblings are separate, still-unresolved
 rows in this particular run, since no promoted rule targets `fee_offset`.
+
+## v2 — real integrations (optional, live-mode only)
+
+Everything above this section is v1, unchanged: zero external calls, zero API spend, the
+cheap-tier deterministic matcher is the only thing that ever produced a number in this document.
+v2 (`LEDGER-SENSE-v2-PRD.md`) adds three *optional* real integrations behind the exact seams v1
+already left for them — it does not touch the matcher's scoring, the guardrail's policy, or
+routing's deterministic rules 1–6. **Every one of them defaults off.** Omit every env var below
+and the pipeline runs byte-identical to every number already printed in this README (law L18).
+
+| Extra | Enables | Falls back to, if unconfigured |
+|---|---|---|
+| `llm` (`openai>=1.0`) | Real `OpenAIAdjudicator` for matching's gray-zone (`--adjudicator auto`); OpenAI-suggested predicate on `resolve`; OpenAI fallback classifier for routing's rule 7 | `StubAdjudicator` / fully manual predicate entry / deterministic rule-7 (v1, unchanged) |
+| `dodo` (`httpx>=0.27`) | `LEDGER_SENSE_DATA_SOURCE=dodo` — real Dodo Payments *sandbox* transactions instead of synthesis | Synthetic generator (v1, unchanged, and still the default even with `dodo` requested if no key is set) |
+| `tracing` (`neatlogs`) | A Neatlogs span per agent CLI entrypoint | No tracing at all — zero overhead, nothing imported |
+
+### Enabling a live-mode extra
+
+```bash
+pip install -e ".[llm,dodo,tracing]"   # or any subset: ".[llm]", ".[llm,tracing]", ...
+```
+
+Then set the env vars that extra needs (copy `.env.example` to `.env`, or export them directly —
+either way, real values never get committed; `.env` is git-ignored):
+
+| Var | Used by | Default when unset |
+|---|---|---|
+| `OPENAI_API_KEY` | matching adjudicator, learning rationale assist, routing fallback | unset → all three stay v1 (stub/manual/deterministic) |
+| `LEDGER_SENSE_OPENAI_MODEL` | same three | `gpt-4o-mini` |
+| `LEDGER_SENSE_LLM_COST_CAP_USD` | same three, shared `llm_client.py` cap | `1.00` (USD, per full pipeline run) |
+| `DODO_API_KEY` / `DODO_ENVIRONMENT` | `--source dodo` | unset → `--source dodo` still degrades to synthetic |
+| `LEDGER_SENSE_DATA_SOURCE` | `python -m ledger_sense.data` | `synthetic` |
+| `NEATLOGS_API_KEY` | every agent CLI entrypoint's tracing wrap point | unset → tracing is a complete no-op |
+
+Nothing here is ever read from anywhere but `config.py` (`openai_enabled()`/`dodo_enabled()`/
+`tracing_enabled()`); no other module touches `os.environ` directly (W8 design constraint).
+
+### Live-mode walkthrough (parallel to the v1 walkthrough above)
+
+Only the invocation changes — inputs, outputs, and every downstream agent are unchanged:
+
+```bash
+# Real gray-zone adjudication (falls back to the same StubAdjudicator on any API
+# failure, cost-cap breach, or malformed response -- never crashes, never blocks):
+python -m ledger_sense.matching --ledger data/pass1/ledger.csv --bank data/pass1/bank.csv \
+  --out-dir data/pass1 --adjudicator auto
+
+# routing/guardrail/learning need no extra flag -- OpenAI's rationale assist (learning)
+# and rule-7 fallback (routing) activate automatically once OPENAI_API_KEY is configured,
+# and degrade to v1's manual/deterministic behavior automatically if it isn't.
+python -m ledger_sense.routing ...   # unchanged invocation
+ledger_sense resolve ...             # unchanged invocation -- prints an extra
+                                      # "SUGGESTION (gpt-4o-mini): ..." line when a key is set
+
+# Real Dodo Payments sandbox data instead of synthesis:
+python -m ledger_sense.data --seed 42 --pass-number 1 --n-cases 25000 --out-dir data/pass1 \
+  --source dodo
+```
+
+### Scoreboard v2 fields
+
+`ledger_sense-scoreboard scoreboard` gained four **additive**, all-optional flags
+(`--llm-cost-usd`, `--adjudicator-stub-dir`/`--adjudicator-llm-dir`,
+`--stub-duration-seconds`/`--live-duration-seconds`, `--entrypoints-run`/`--spans-emitted`). Omit
+all of them and `scoreboard.json`'s new `"v2"` key reports every sub-metric `"measured": false` —
+the terminal report prints nothing extra either, so a v1 caller sees byte-identical output. Each
+figure is a *caller-supplied measurement of a run that already happened* (this agent still never
+runs Agents 1–4 itself, computing "only from files/args already given," now extended to include
+values the operator measured around a real run) — never fabricated, never estimated by
+`scoreboard.py` itself:
+
+- **Total OpenAI cost this run** — real $ spent, as read off the real adjudicator's
+  `LLMClient.cumulative_cost_usd` (or computed from real token counts, see below).
+- **Cost per STR point gained, attributable to the real adjudicator** — requires two full pass
+  directories over the *identical* underlying batch, one produced with `--adjudicator stub`, one
+  with `--adjudicator auto`. Reports the real, ground-truth-checked (`match_links.csv`)
+  straight-through delta between them, and `$/point` only when that delta is positive — a
+  zero-or-negative measured gain is reported as `cost_per_str_point_usd: null` ("no STR gain
+  measured this run"), never divided-by-zero or asserted as free.
+- **Latency delta** — stub+synthetic wall-clock vs. full live-mode wall-clock, both timed by the
+  caller (`scoreboard.py` never times anything itself).
+- **Neatlogs trace-coverage** — spans actually emitted ÷ entrypoints run, both counted by the
+  caller; Neatlogs is a real external service, not a file this package can read.
+
+### Live-mode smoke test — actual measured evidence (2026-09-06)
+
+One real end-to-end run, both adjudicators against the *identical* synthetic batch
+(`seed=777, n-cases=300` → 294 ledger rows / 327 bank rows), all four real keys configured
+(`OPENAI_API_KEY`, `DODO_API_KEY`+`DODO_ENVIRONMENT=sandbox`, `NEATLOGS_API_KEY`), package
+installed as `pip install -e ".[llm,dodo,tracing]"`. Full command trace and every derived number
+below are in the W14 PR description; summarized here:
+
+| Metric | Value |
+|---|---:|
+| Real OpenAI calls (matching adjudicator) | 36 |
+| Real tokens (prompt / completion) | 14,126 / 1,420 |
+| Real OpenAI cost (gpt-4o-mini list pricing: $0.15/$0.60 per 1M in/out tokens) | **$0.002971** |
+| Match precision vs. ground truth, both adjudicators | 100.00% (no false positives either way) |
+| STR (real) — stub vs. real adjudicator, same batch | 288 → 271 (**−17 points**) |
+| Cost per STR point gained | **n/a — no gain measured this run** (real adjudicator resolved *fewer* net rows than the stub heuristic on this small batch; see PR body) |
+| Wall-clock — stub+synthetic vs. live (matching+routing+guardrail) | 9.876s → 83.620s (**+73.744s**) |
+| Neatlogs trace coverage | **0/4 (0%)** |
+| Dodo sandbox pull | attempted, **HTTP 403 Forbidden** |
+
+**Two integrations did not actually work against the real (not mocked) third-party services**,
+found only by this live run, not by any mocked unit test:
+
+- **Neatlogs**: the real installed `neatlogs` package (v1.1.8) exposes no `Client` class —
+  `tracing.py`'s `_build_client()` (`neatlogs.Client(api_key=...)`) raises `AttributeError` every
+  time. L18's broad exception guard swallows this correctly (every entrypoint still completes,
+  exit 0, stdout unaffected) — the pipeline never crashed, but **zero spans were ever actually
+  sent**. Confirmed both indirectly (all four entrypoints run, trace-coverage measured 0/4) and
+  directly (calling `tracing._build_client()` + `.send()` once, by hand, reproduces the exact
+  `AttributeError` above). `tracing.py` is out of this card's file scope (W14 may not touch it);
+  this is disclosed as a real, observed integration gap for a future card, not silently patched
+  over or hidden.
+- **Dodo Payments**: `python -m ledger_sense.data --source dodo` with a real sandbox key
+  configured reached `https://test.dodopayments.com/payments` and got back `HTTP 403 Forbidden`
+  after 3 bounded retries (law L22 held — no infinite loop) — a real, specific, observed failure,
+  not "no seeded sandbox transactions" (a 403 is an authorization/endpoint-shape response, not an
+  empty-but-authorized 200). `dodo_source.py`'s assumed request shape may not match Dodo's actual
+  sandbox API; also worth noting for a future card: `DodoAPIError` (a *configured* key that fails)
+  isn't caught by `cli.py`'s top-level handler the way `DodoNotConfiguredError` (an *absent* key)
+  is, so this exits with a full traceback rather than the clean one-line message a missing key
+  gets — again disclosed, not fixed here (`data/` is out of this card's file scope).
+
+Genuinely working this run: the real OpenAI matching adjudicator (dispatched real calls, real
+tokens, real — if small — spend) and its L18/L22 fallback discipline: partway through the batch
+36 of 51 gray-zone candidates got a real answered verdict before the remainder fell back to the
+deterministic stub for that batch, exactly as designed — never a crash, never a block, and ground
+truth precision stayed 100% on both sides throughout.
 
 ## How AO was used
 

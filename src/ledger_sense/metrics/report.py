@@ -48,6 +48,53 @@ def _pass_block(label: str, summary: dict) -> list:
     return lines
 
 
+def _v2_block(v2: dict) -> list:
+    """v2 (LEDGER-SENSE-v2-PRD.md W14) additive lines -- only ever printed for
+    the sub-metrics a caller actually measured (``measured: True``); an
+    unmeasured sub-metric (the default, v1/offline case) prints nothing at
+    all, so a plain v1 invocation's terminal output is completely unchanged
+    from before this section existed."""
+    lines = ["-- v2 (live-mode) --"]
+    printed = False
+
+    cost = v2.get("llm_cost", {})
+    if cost.get("measured"):
+        lines.append(f"  OpenAI cost this run: ${cost['total_cost_usd']}")
+        printed = True
+
+    lift = v2.get("adjudicator_lift", {})
+    if lift.get("measured"):
+        cost_per_point = lift["cost_per_str_point_usd"]
+        cost_per_point_display = f"${cost_per_point}" if cost_per_point is not None else "n/a (no STR gain measured)"
+        lines.append(
+            f"  Real adjudicator STR lift: {lift['stub_straight_through_correct']} -> "
+            f"{lift['llm_straight_through_correct']} ({lift['str_points_gained']:+d} points); "
+            f"cost/point: {cost_per_point_display}"
+        )
+        printed = True
+
+    latency = v2.get("latency_delta", {})
+    if latency.get("measured"):
+        lines.append(
+            f"  Latency delta (stub+synthetic vs. live): {latency['stub_duration_seconds']}s -> "
+            f"{latency['live_duration_seconds']}s (delta {latency['delta_seconds']}s)"
+        )
+        printed = True
+
+    trace = v2.get("trace_coverage", {})
+    if trace.get("measured"):
+        lines.append(
+            f"  Neatlogs trace coverage: {trace['spans_emitted']}/{trace['entrypoints_run']} "
+            f"({trace['coverage_pct']}%)"
+        )
+        printed = True
+
+    if not printed:
+        return []
+    lines.append("")
+    return lines
+
+
 def render_report(scoreboard: dict) -> str:
     lines = []
     inputs = scoreboard["inputs"]
@@ -58,6 +105,7 @@ def render_report(scoreboard: dict) -> str:
     lines.append("")
     lines.extend(_pass_block("Pass 2", scoreboard["pass2"]))
     lines.append("")
+    lines.extend(_v2_block(scoreboard.get("v2", {})))
     lines.append(f"Learned rule count: {scoreboard['learned_rule_count']}")
     lines.append("")
 

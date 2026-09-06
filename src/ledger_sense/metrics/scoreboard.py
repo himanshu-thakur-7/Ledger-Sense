@@ -136,6 +136,106 @@ def rule_trace(rule_hit_rows, rules_by_id) -> list:
     return trace
 
 
+def llm_cost_summary(*, llm_cost_usd) -> dict:
+    """Total OpenAI $ actually spent by a real (non-stub) run, as measured by
+    the caller -- never estimated here (spec: LEDGER-SENSE-v2-PRD.md W14
+    success metrics, "Cost per resolved exception").
+
+    ``scoreboard.py`` only ever reads files already on disk (module docstring
+    above); nothing in ``match_outcomes.csv`` carries a per-call dollar
+    figure (only ``llm_model``/``llm_confidence``/``llm_is_stub``, W9's
+    existing columns), so the actual spend for a live run is supplied by the
+    caller -- typically read off the real ``OpenAIAdjudicator``'s underlying
+    ``LLMClient.cumulative_cost_usd`` right after the matching CLI returns.
+    ``llm_cost_usd`` is ``None`` for every v1/offline/CI run (law L20/L18) --
+    that is reported as ``measured: False`` rather than fabricated as a $0.00
+    spend, which would misrepresent "never called" as "called for free".
+    """
+    if llm_cost_usd is None:
+        return {"measured": False}
+    return {"measured": True, "total_cost_usd": str(Decimal(llm_cost_usd))}
+
+
+def adjudicator_lift(*, stub_str_real: dict, llm_str_real: dict, llm_cost_usd) -> dict:
+    """Match-rate lift and cost-per-STR-point attributable specifically to
+    the real adjudicator (PRD success metric), from two ``real_straight_through``
+    summaries computed over the *same* underlying batch (identical
+    ``ledger.csv``/``bank.csv``) -- one produced with ``--adjudicator stub``,
+    one with ``--adjudicator auto`` against a configured real key. Passing
+    two summaries from different batches would silently misattribute
+    ordinary two-draw variance to the adjudicator -- that discipline is the
+    caller's (``cli.py``'s ``--adjudicator-stub-dir``/``--adjudicator-llm-dir``
+    docstrings), not something this pure function can verify.
+
+    ``llm_cost_usd`` is the real run's measured OpenAI spend (see
+    ``llm_cost_summary``) -- ``None`` when not measured (v1/CI), in which
+    case cost-per-point is reported ``None`` rather than fabricated as
+    ``0``/infinite. Likewise when the real adjudicator resolved zero
+    *additional* straight-through-and-correct rows this run (``points_gained
+    <= 0``) -- dividing a real dollar spend by a non-positive gain would
+    misrepresent "no measured lift" as a cost figure, so it is reported
+    ``None`` (a real, disclosable outcome) instead.
+    """
+    stub_correct = stub_str_real["straight_through_correct"]
+    llm_correct = llm_str_real["straight_through_correct"]
+    points_gained = llm_correct - stub_correct
+    cost_per_point = None
+    if llm_cost_usd is not None and points_gained > 0:
+        cost_per_point = str((Decimal(llm_cost_usd) / Decimal(points_gained)).quantize(Decimal("0.0001")))
+    return {
+        "stub_straight_through_correct": stub_correct,
+        "llm_straight_through_correct": llm_correct,
+        "str_points_gained": points_gained,
+        "stub_real_str_pct": stub_str_real["real_str_pct"],
+        "llm_real_str_pct": llm_str_real["real_str_pct"],
+        "cost_per_str_point_usd": cost_per_point,
+    }
+
+
+def latency_delta(*, stub_duration_seconds, live_duration_seconds) -> dict:
+    """Wall-clock delta, synthetic+stub mode vs. full live mode, over the
+    same batch (PRD success metric) -- both durations are the caller's own
+    measurement (e.g. wrapping each pipeline run with ``time.monotonic()``)
+    since ``scoreboard.py`` never runs Agents 1-4 itself (module docstring)
+    and neither figure is written to any file this package reads. Decimal
+    seconds in, Decimal seconds out (law L3) -- never a float literal.
+    Missing either side (the default, no-live-run case) -- reported
+    ``measured: False`` rather than a fabricated ``0``-second delta.
+    """
+    if stub_duration_seconds is None or live_duration_seconds is None:
+        return {"measured": False}
+    stub_s = Decimal(stub_duration_seconds)
+    live_s = Decimal(live_duration_seconds)
+    return {
+        "measured": True,
+        "stub_duration_seconds": str(stub_s),
+        "live_duration_seconds": str(live_s),
+        "delta_seconds": str(live_s - stub_s),
+    }
+
+
+def trace_coverage(*, entrypoints_run, spans_emitted) -> dict:
+    """Neatlogs trace-coverage: spans actually emitted / entrypoints run
+    (PRD success metric: "100% of agent runs produce a Neatlogs trace when
+    tracing is enabled"). ``tracing.py`` sends spans directly to the real
+    Neatlogs service and writes nothing to any file this package reads, so
+    both counts are the caller's own tally (e.g. counting successful CLI
+    entrypoint invocations against a Neatlogs-side span count for the same
+    run) rather than something ``scoreboard.py`` could recompute from disk.
+    Missing either count (the default, tracing-disabled case) -- reported
+    ``measured: False`` rather than asserting a 0% or 100% coverage nobody
+    actually counted.
+    """
+    if entrypoints_run is None or spans_emitted is None:
+        return {"measured": False}
+    return {
+        "measured": True,
+        "entrypoints_run": entrypoints_run,
+        "spans_emitted": spans_emitted,
+        "coverage_pct": _pct(spans_emitted, entrypoints_run),
+    }
+
+
 def _pass_summary(outcomes, settlements, exceptions, release_decisions, match_links, queues, guardrail_audit) -> dict:
     settlements_by_id = {row["ledger_id"]: row for row in settlements}
     truth = ground_truth_map(match_links)
@@ -152,7 +252,10 @@ def _pass_summary(outcomes, settlements, exceptions, release_decisions, match_li
     }
 
 
-def build_scoreboard(*, pass1, pass2, rules, rule_hits, pass1_dir, pass2_dir, rules_path) -> dict:
+def build_scoreboard(*, pass1, pass2, rules, rule_hits, pass1_dir, pass2_dir, rules_path,
+                      llm_cost_usd=None, adjudicator_stub=None, adjudicator_llm=None,
+                      stub_duration_seconds=None, live_duration_seconds=None,
+                      entrypoints_run=None, spans_emitted=None) -> dict:
     """Assemble the full scoreboard dict from already-parsed pass-1/pass-2
     file contents.
 
@@ -166,6 +269,22 @@ def build_scoreboard(*, pass1, pass2, rules, rule_hits, pass1_dir, pass2_dir, ru
     ``rule_id`` absent from ``rules.json``, or a pass-2 auto-resolve that
     ``rule_hits.csv`` doesn't account for (acceptance #3: the trace table
     must cover 100% of rule-driven auto-resolves).
+
+    Every remaining keyword (v2, LEDGER-SENSE-v2-PRD.md W14) is optional and
+    additive -- omitted entirely, every one defaults to ``None`` and the
+    scoreboard's ``v2`` section reports each sub-metric ``measured: False``
+    rather than a fabricated number, so a v1/offline/CI caller (the existing
+    ``build_scoreboard(pass1=..., pass2=..., ...)`` call shape) is completely
+    unaffected:
+      * ``llm_cost_usd`` -- real OpenAI $ spent this run (see ``llm_cost_summary``).
+      * ``adjudicator_stub``/``adjudicator_llm`` -- pass-shaped dicts (same
+        ``outcomes``/``settlements``/``match_links`` keys as ``pass1``/``pass2``)
+        from the *same* underlying batch matched twice, once per adjudicator
+        (see ``adjudicator_lift``).
+      * ``stub_duration_seconds``/``live_duration_seconds`` -- wall-clock
+        seconds for the two runs being compared (see ``latency_delta``).
+      * ``entrypoints_run``/``spans_emitted`` -- Neatlogs trace-coverage
+        counts (see ``trace_coverage``).
     """
     rules_by_id = {rule["rule_id"]: rule for rule in rules}
     missing_rule_ids = {hit["rule_id"] for hit in rule_hits} - set(rules_by_id)
@@ -193,6 +312,23 @@ def build_scoreboard(*, pass1, pass2, rules, rule_hits, pass1_dir, pass2_dir, ru
     pass2_summary["rule_driven_auto_resolves"] = auto_resolved_by_rule
     pass2_summary["trace_coverage_pct"] = _pct(len(rule_hits), auto_resolved_by_rule) if auto_resolved_by_rule else "100.00"
 
+    adjudicator_lift_result = {"measured": False}
+    if adjudicator_stub is not None and adjudicator_llm is not None:
+        stub_real = real_straight_through(
+            adjudicator_stub["outcomes"],
+            {row["ledger_id"]: row for row in adjudicator_stub["settlements"]},
+            ground_truth_map(adjudicator_stub["match_links"]),
+        )
+        llm_real = real_straight_through(
+            adjudicator_llm["outcomes"],
+            {row["ledger_id"]: row for row in adjudicator_llm["settlements"]},
+            ground_truth_map(adjudicator_llm["match_links"]),
+        )
+        adjudicator_lift_result = {
+            "measured": True,
+            **adjudicator_lift(stub_str_real=stub_real, llm_str_real=llm_real, llm_cost_usd=llm_cost_usd),
+        }
+
     return {
         "inputs": {
             "pass1_dir": str(pass1_dir),
@@ -206,4 +342,12 @@ def build_scoreboard(*, pass1, pass2, rules, rule_hits, pass1_dir, pass2_dir, ru
             pass1["exceptions"], pass1["features"], pass2["exceptions"], pass2["features"]
         ),
         "rule_trace": rule_trace(rule_hits, rules_by_id),
+        "v2": {
+            "llm_cost": llm_cost_summary(llm_cost_usd=llm_cost_usd),
+            "adjudicator_lift": adjudicator_lift_result,
+            "latency_delta": latency_delta(
+                stub_duration_seconds=stub_duration_seconds, live_duration_seconds=live_duration_seconds
+            ),
+            "trace_coverage": trace_coverage(entrypoints_run=entrypoints_run, spans_emitted=spans_emitted),
+        },
     }
