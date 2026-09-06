@@ -29,3 +29,9 @@ data/pass*/*.csv
 # Real secrets (see W8, .env.example) — .env.example is the checked-in
 # template; .env itself must never be committed.
 .env
+
+# Close desk working artifacts (see TAPE-1) — generated wherever a human
+# points --dir; demo_trace.json/.desk/ are never committed.
+data/demo/
+**/.desk/
+demo_trace.json

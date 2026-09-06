@@ -134,13 +134,19 @@ def load_config(dotenv_path: Path | str | None = None) -> Config:
         cost_cap = 1.00
 
     return Config(
-        openai_api_key=env("OPENAI_API_KEY") or None,
+        # Each key also accepts a LEDGER_SENSE_-prefixed alias, checked only
+        # when the bare name is unset -- useful on a machine where the bare
+        # name (OPENAI_API_KEY, etc.) is already claimed by another tool's
+        # own environment (TAPE-1: close-desk env aliases). The bare name
+        # always wins when both are set, matching every third-party SDK's
+        # own convention for that variable.
+        openai_api_key=env("OPENAI_API_KEY") or env("LEDGER_SENSE_OPENAI_API_KEY") or None,
         openai_model=env("LEDGER_SENSE_OPENAI_MODEL", "gpt-4o-mini"),
         llm_cost_cap_usd=cost_cap,
-        dodo_api_key=env("DODO_API_KEY") or None,
+        dodo_api_key=env("DODO_API_KEY") or env("LEDGER_SENSE_DODO_API_KEY") or None,
         dodo_environment=env("DODO_ENVIRONMENT", "sandbox"),
         data_source=env("LEDGER_SENSE_DATA_SOURCE", "synthetic"),
-        neatlogs_api_key=env("NEATLOGS_API_KEY") or None,
+        neatlogs_api_key=env("NEATLOGS_API_KEY") or env("LEDGER_SENSE_NEATLOGS_API_KEY") or None,
     )
 
 

@@ -20,11 +20,29 @@ socket. `DodoSandboxClient` (the real transport) is otherwise only ever
 *referenced*, never instantiated with real network IO.
 """
 
+import json
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 
 from ledger_sense.data.models import BANK_COLUMNS, BankTransaction
+
+# Several tests below call `cli.py::main` in-process (not via subprocess),
+# so a real v2 key sitting in the ambient environment (e.g. a project-level
+# NEATLOGS_API_KEY configured for W14/W16's opt-in live smoke tests) would
+# otherwise leak into their exact-stderr assertions -- tracing.py's own
+# graceful-degrade stderr line is real, correct output (TAPE-1 law L18), but
+# not something this file's tests are about. Scrub every v2 key so this
+# file's assertions stay deterministic regardless of what else is configured
+# on the machine (mirrors tests/test_tracing.py's own `clean_env` fixture).
+_ALL_V2_KEYS = ("OPENAI_API_KEY", "DODO_API_KEY", "NEATLOGS_API_KEY", "LEDGER_SENSE_DATA_SOURCE")
+
+
+@pytest.fixture(autouse=True)
+def _clean_v2_env(monkeypatch):
+    for key in _ALL_V2_KEYS:
+        monkeypatch.delenv(key, raising=False)
 
 # --- FakeDodoClient: the mocked Dodo client every test in this file uses ---
 
@@ -361,6 +379,76 @@ def test_cli_dodo_source_with_key_and_injected_client_succeeds(tmp_path):
 # never runs as part of the default/CI suite and never requires a live key
 # (mirrors W6's real-batch opt-in tests / W15's real-SDK test convention).
 # ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# TAPE-1 part B: --source dodo-cache fallback -- a live 401/403 falls back
+# to a labeled, checked-in cache snapshot, never inventing payment rows.
+# ---------------------------------------------------------------------------
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+REAL_CACHE_PATH = REPO_ROOT / "tests" / "fixtures" / "dodo_sandbox_cache.json"
+
+
+def test_auth_failure_status_code_detects_401_and_403():
+    from ledger_sense.data.dodo_source import DodoAPIError, auth_failure_status_code
+
+    forbidden = DodoAPIError("Dodo sandbox list_transactions failed after 3 attempt(s): "
+                              "HTTP 403 Forbidden -- error code: 1010")
+    unauthorized = DodoAPIError("Dodo sandbox list_transactions failed after 3 attempt(s): "
+                                 "HTTP 401 Unauthorized")
+    assert auth_failure_status_code(forbidden) == 403
+    assert auth_failure_status_code(unauthorized) == 401
+
+
+def test_auth_failure_status_code_ignores_non_auth_failures():
+    from ledger_sense.data.dodo_source import DodoAPIError, auth_failure_status_code
+
+    server_error = DodoAPIError("Dodo sandbox list_transactions failed after 3 attempt(s): "
+                                 "HTTP 500 Internal Server Error")
+    no_code = DodoAPIError("Dodo sandbox list_transactions failed after 3 attempt(s): timeout")
+    assert auth_failure_status_code(server_error) is None
+    assert auth_failure_status_code(no_code) is None
+
+
+def test_cached_dodo_client_reads_labeled_transactions_from_disk(tmp_path):
+    from ledger_sense.data.dodo_source import CachedDodoClient
+
+    cache_path = tmp_path / "cache.json"
+    cache_path.write_text(json.dumps({"items": [_raw(transaction_id="txn_cached_1")]}), encoding="utf-8")
+
+    client = CachedDodoClient(str(cache_path))
+    page = client.list_transactions()
+    assert len(page.transactions) == 1
+    assert page.transactions[0].transaction_id == "txn_cached_1"
+    assert page.next_cursor is None
+
+
+def test_cached_dodo_client_never_invents_rows_when_cache_file_is_missing(tmp_path):
+    from ledger_sense.data.dodo_source import CachedDodoClient, DodoAPIError
+
+    client = CachedDodoClient(str(tmp_path / "does_not_exist.json"))
+    with pytest.raises(DodoAPIError):
+        client.list_transactions()
+
+
+def test_load_cached_dataset_builds_a_full_dataset_from_the_real_committed_cache():
+    from ledger_sense.data.dodo_source import load_cached_dataset
+
+    dataset = load_cached_dataset(str(REAL_CACHE_PATH), seed=1)
+    assert dataset.pulled_transaction_count > 0
+    assert len(dataset.bank_rows) == dataset.pulled_transaction_count
+    assert len(dataset.ledger_rows) == dataset.pulled_transaction_count
+    assert len(dataset.match_link_rows) == dataset.pulled_transaction_count
+
+
+def test_load_cached_dataset_is_deterministic():
+    from ledger_sense.data.dodo_source import load_cached_dataset
+
+    first = load_cached_dataset(str(REAL_CACHE_PATH), seed=3)
+    second = load_cached_dataset(str(REAL_CACHE_PATH), seed=3)
+    assert first.bank_rows == second.bank_rows
+    assert first.ledger_rows == second.ledger_rows
 
 
 @pytest.mark.slow

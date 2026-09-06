@@ -1,0 +1,225 @@
+{
+  "_label": "LABELED CACHE -- a fixed, checked-in snapshot of Dodo sandbox-shaped transactions for the close desk's dodo-cache fallback (TAPE-1 part B). Never a live pull; used only when the real sandbox API returns 401/403.",
+  "items": [
+    {
+      "transaction_id": "txn_dodocache_000",
+      "amount_cents": 5000,
+      "currency": "USD",
+      "direction": "debit",
+      "customer_name": "Acme Logistics",
+      "reference": "",
+      "description": "",
+      "created_at": "2026-02-01T09:00:00Z",
+      "status": "succeeded"
+    },
+    {
+      "transaction_id": "txn_dodocache_001",
+      "amount_cents": 5733,
+      "currency": "USD",
+      "direction": "credit",
+      "customer_name": "Blue Ridge Supply",
+      "reference": "INV-DODOCACHE-2026-000001",
+      "description": "Payment for Blue Ridge Supply",
+      "created_at": "2026-02-02T09:03:00Z",
+      "status": "succeeded"
+    },
+    {
+      "transaction_id": "txn_dodocache_002",
+      "amount_cents": 6466,
+      "currency": "USD",
+      "direction": "credit",
+      "customer_name": "Cedar Point Foods",
+      "reference": "INV-DODOCACHE-2026-000002",
+      "description": "Payment for Cedar Point Foods",
+      "created_at": "2026-02-03T09:06:00Z",
+      "status": "succeeded"
+    },
+    {
+      "transaction_id": "txn_dodocache_003",
+      "amount_cents": 7199,
+      "currency": "USD",
+      "direction": "debit",
+      "customer_name": "Dune Retail Co",
+      "reference": "INV-DODOCACHE-2026-000003",
+      "description": "Payment for Dune Retail Co",
+      "created_at": "2026-02-04T09:09:00Z",
+      "status": "succeeded"
+    },
+    {
+      "transaction_id": "txn_dodocache_004",
+      "amount_cents": 7932,
+      "currency": "USD",
+      "direction": "credit",
+      "customer_name": "Everline Media",
+      "reference": "INV-DODOCACHE-2026-000004",
+      "description": "Payment for Everline Media",
+      "created_at": "2026-02-05T09:12:00Z",
+      "status": "succeeded"
+    },
+    {
+      "transaction_id": "txn_dodocache_005",
+      "amount_cents": 8665,
+      "currency": "USD",
+      "direction": "credit",
+      "customer_name": "Fenwick Analytics",
+      "reference": "INV-DODOCACHE-2026-000005",
+      "description": "Payment for Fenwick Analytics",
+      "created_at": "2026-02-06T09:15:00Z",
+      "status": "succeeded"
+    },
+    {
+      "transaction_id": "txn_dodocache_006",
+      "amount_cents": 9398,
+      "currency": "USD",
+      "direction": "debit",
+      "customer_name": "Grove Robotics",
+      "reference": "INV-DODOCACHE-2026-000006",
+      "description": "Payment for Grove Robotics",
+      "created_at": "2026-02-07T09:18:00Z",
+      "status": "succeeded"
+    },
+    {
+      "transaction_id": "txn_dodocache_007",
+      "amount_cents": 10131,
+      "currency": "USD",
+      "direction": "credit",
+      "customer_name": "Harbor Freight Intl",
+      "reference": "",
+      "description": "",
+      "created_at": "2026-02-08T09:21:00Z",
+      "status": "succeeded"
+    },
+    {
+      "transaction_id": "txn_dodocache_008",
+      "amount_cents": 10864,
+      "currency": "USD",
+      "direction": "credit",
+      "customer_name": "Ivory Consulting",
+      "reference": "INV-DODOCACHE-2026-000008",
+      "description": "Payment for Ivory Consulting",
+      "created_at": "2026-02-09T09:24:00Z",
+      "status": "succeeded"
+    },
+    {
+      "transaction_id": "txn_dodocache_009",
+      "amount_cents": 11597,
+      "currency": "USD",
+      "direction": "debit",
+      "customer_name": "Juniper Labs",
+      "reference": "INV-DODOCACHE-2026-000009",
+      "description": "Payment for Juniper Labs",
+      "created_at": "2026-02-10T09:27:00Z",
+      "status": "succeeded"
+    },
+    {
+      "transaction_id": "txn_dodocache_010",
+      "amount_cents": 12330,
+      "currency": "USD",
+      "direction": "credit",
+      "customer_name": "Kettle & Kin",
+      "reference": "INV-DODOCACHE-2026-000010",
+      "description": "Payment for Kettle & Kin",
+      "created_at": "2026-02-11T09:30:00Z",
+      "status": "succeeded"
+    },
+    {
+      "transaction_id": "txn_dodocache_011",
+      "amount_cents": 13063,
+      "currency": "USD",
+      "direction": "credit",
+      "customer_name": "Lattice Works",
+      "reference": "INV-DODOCACHE-2026-000011",
+      "description": "Payment for Lattice Works",
+      "created_at": "2026-02-12T09:33:00Z",
+      "status": "succeeded"
+    },
+    {
+      "transaction_id": "txn_dodocache_012",
+      "amount_cents": 13796,
+      "currency": "USD",
+      "direction": "debit",
+      "customer_name": "Marrow Studio",
+      "reference": "INV-DODOCACHE-2026-000012",
+      "description": "Payment for Marrow Studio",
+      "created_at": "2026-02-13T09:36:00Z",
+      "status": "succeeded"
+    },
+    {
+      "transaction_id": "txn_dodocache_013",
+      "amount_cents": 14529,
+      "currency": "USD",
+      "direction": "credit",
+      "customer_name": "Nimbus Cloud Co",
+      "reference": "INV-DODOCACHE-2026-000013",
+      "description": "Payment for Nimbus Cloud Co",
+      "created_at": "2026-02-14T09:39:00Z",
+      "status": "succeeded"
+    },
+    {
+      "transaction_id": "txn_dodocache_014",
+      "amount_cents": 15262,
+      "currency": "USD",
+      "direction": "credit",
+      "customer_name": "Orchid Textiles",
+      "reference": "",
+      "description": "",
+      "created_at": "2026-02-15T09:42:00Z",
+      "status": "succeeded"
+    },
+    {
+      "transaction_id": "txn_dodocache_015",
+      "amount_cents": 15995,
+      "currency": "USD",
+      "direction": "debit",
+      "customer_name": "Pinehurst Group",
+      "reference": "INV-DODOCACHE-2026-000015",
+      "description": "Payment for Pinehurst Group",
+      "created_at": "2026-02-16T09:45:00Z",
+      "status": "succeeded"
+    },
+    {
+      "transaction_id": "txn_dodocache_016",
+      "amount_cents": 16728,
+      "currency": "USD",
+      "direction": "credit",
+      "customer_name": "Quartz Ventures",
+      "reference": "INV-DODOCACHE-2026-000016",
+      "description": "Payment for Quartz Ventures",
+      "created_at": "2026-02-17T09:48:00Z",
+      "status": "succeeded"
+    },
+    {
+      "transaction_id": "txn_dodocache_017",
+      "amount_cents": 17461,
+      "currency": "USD",
+      "direction": "credit",
+      "customer_name": "Riverside Timber",
+      "reference": "INV-DODOCACHE-2026-000017",
+      "description": "Payment for Riverside Timber",
+      "created_at": "2026-02-18T09:51:00Z",
+      "status": "succeeded"
+    },
+    {
+      "transaction_id": "txn_dodocache_018",
+      "amount_cents": 18194,
+      "currency": "USD",
+      "direction": "debit",
+      "customer_name": "Solace Wellness",
+      "reference": "INV-DODOCACHE-2026-000018",
+      "description": "Payment for Solace Wellness",
+      "created_at": "2026-02-19T09:54:00Z",
+      "status": "succeeded"
+    },
+    {
+      "transaction_id": "txn_dodocache_019",
+      "amount_cents": 18927,
+      "currency": "USD",
+      "direction": "credit",
+      "customer_name": "Tundra Freight",
+      "reference": "INV-DODOCACHE-2026-000019",
+      "description": "Payment for Tundra Freight",
+      "created_at": "2026-02-20T09:57:00Z",
+      "status": "succeeded"
+    }
+  ]
+}

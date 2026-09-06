@@ -30,11 +30,13 @@ configured and never runs as part of the default/CI suite.
 from __future__ import annotations
 
 import json
+import re
 import urllib.error
 import urllib.request
 from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Iterable, List, Optional, Protocol
 
 from .dodo_pairing import pair_dataset
@@ -221,6 +223,79 @@ class DodoSandboxClient:
             for item in payload.get("items", [])
         ]
         return DodoPage(transactions=tuple(items), next_cursor=payload.get("next_cursor"))
+
+
+# Default location for a previously captured, labeled snapshot of a real
+# Dodo sandbox page -- checked into the repo under tests/fixtures so the
+# close desk's "pull" intent has something honest to fall back to when a
+# live 401/403 means the real sandbox is unreachable this run (TAPE-1 part
+# B). Never invented data: every row here is the exact shape a real
+# DodoSandboxClient.list_transactions() response already produces, just
+# replayed instead of fetched.
+DEFAULT_CACHE_PATH = "tests/fixtures/dodo_sandbox_cache.json"
+
+# Matches the HTTP status code out of DodoAPIError's own message shape
+# (`_describe_http_error`'s "HTTP <code> <reason> -- ..."), so a caller can
+# tell a 401/403 apart from a transient 5xx/timeout without re-parsing the
+# whole message by hand.
+_HTTP_STATUS_RE = re.compile(r"HTTP (\d{3})\b")
+
+
+def auth_failure_status_code(exc: DodoAPIError) -> Optional[int]:
+    """The HTTP status code out of ``exc``'s message, if it looks like an
+    auth/permission failure (401/403) -- ``None`` for anything else (a
+    transient network error, a 5xx, or a message with no HTTP code at all).
+
+    This is the one distinction the close desk's ``pull`` intent needs to
+    decide "fall back to the labeled cache" vs. "just report the failure":
+    a 401/403 means the configured key itself is bad/expired/unauthorized,
+    which a labeled cache genuinely substitutes for; any other failure
+    shape is left to the caller to report as-is (retrying against a stale
+    cache would misrepresent a transient outage as a real pull).
+    """
+    match = _HTTP_STATUS_RE.search(str(exc))
+    if not match:
+        return None
+    code = int(match.group(1))
+    return code if code in (401, 403) else None
+
+
+@dataclass
+class CachedDodoClient:
+    """Replays a previously captured, clearly-labeled Dodo sandbox page from
+    disk -- the ``--source dodo-cache`` fallback path (TAPE-1 part B) for
+    when a live pull 401/403s. Structurally satisfies :class:`DodoClient`
+    exactly like the real transport or a test's fake one; ``build_dodo_dataset``
+    and everything downstream needs zero special-casing to consume it.
+
+    Never invents a payment row: ``cache_path`` must already contain a JSON
+    object shaped ``{"items": [<DodoRawTransaction field dict>, ...]}`` --
+    the exact wire shape :class:`DodoSandboxClient` itself parses into
+    :class:`DodoRawTransaction`. One page, no pagination -- a cache is a
+    fixed, already-labeled snapshot, not a live paginated feed.
+    """
+
+    cache_path: str = DEFAULT_CACHE_PATH
+
+    def list_transactions(self, *, cursor: Optional[str] = None) -> DodoPage:
+        path = Path(self.cache_path)
+        if not path.is_file():
+            raise DodoAPIError(
+                f"dodo-cache requested but no labeled cache found at {self.cache_path} -- "
+                "never inventing payment rows; run a live pull once to seed one, or use "
+                "--source synthetic"
+            )
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        items = [DodoRawTransaction(**item) for item in payload.get("items", [])]
+        return DodoPage(transactions=tuple(items), next_cursor=None)
+
+
+def load_cached_dataset(cache_path: str = DEFAULT_CACHE_PATH, *, seed: int = 0) -> "DodoDataset":
+    """Build a full :class:`DodoDataset` from the labeled cache instead of a
+    live pull -- same pull-then-synthesize pipeline as :func:`build_dodo_dataset`,
+    just fed by :class:`CachedDodoClient` instead of :class:`DodoSandboxClient`.
+    """
+    return build_dodo_dataset(CachedDodoClient(cache_path), seed=seed)
 
 
 def ensure_dodo_configured(config) -> None:

@@ -1,20 +1,24 @@
-"""W10: Neatlogs tracing -- mocked-client only (L20).
+"""W10/TAPE-1: Neatlogs tracing -- mocked-SDK only (L20).
 
 ``traced_run(agent_name, **metadata)`` (``ledger_sense.tracing``) is the one
 wrap point every agent CLI entrypoint calls. No test in this file may import
 the real `neatlogs` package or open a socket -- every test that needs
-tracing "enabled" monkeypatches ``ledger_sense.tracing._build_client``
-with a fake client instead (the only place a real `import neatlogs` could
-ever happen).
+tracing "enabled" monkeypatches ``ledger_sense.tracing._init`` /
+``_span`` / ``_flush`` directly (the only three places a real
+``import neatlogs`` could ever happen). There is no ``neatlogs.Client`` --
+that was W10's bug (confirmed by W14's live smoke test: 0/4 real spans ever
+sent); the real SDK is a module-level ``init``/``span``/``flush`` API, and
+this module -- and this whole test file -- reflects that fix.
 
-Sections, matching BOARD.md's W10 acceptance list:
+Sections, matching BOARD.md's W10/TAPE-1 acceptance lists:
   1. Regression -- NEATLOGS_API_KEY unset -> all 6 entrypoints run
      byte-identical to their pre-W10 output.
-  2. Unit tests against a mocked Neatlogs client -- zero live network calls.
+  2. Unit tests against mocked ``init``/``span``/``flush`` -- zero live
+     network calls, and proof ``neatlogs.Client`` is gone.
   3. Redaction -- a fake API-key-shaped string in span metadata never
-     reaches the (mocked) client's payload.
-  4. A mocked client raising an error never crashes the CLI or changes its
-     exit code/output.
+     reaches the (mocked) span's tags.
+  4. init/span/flush raising never crashes the CLI or changes its exit
+     code/output -- always exactly one stderr line per failure.
 """
 
 import json
@@ -33,6 +37,7 @@ from ledger_sense.metrics import io as metrics_io
 
 FIXTURE = Path(__file__).parent / "fixtures" / "mini_pass1"
 PY = sys.executable
+REPO_ROOT = Path(__file__).parent.parent
 
 ALL_V2_KEYS = (
     "OPENAI_API_KEY",
@@ -59,18 +64,38 @@ def fake_config(**overrides) -> Config:
     return Config(**defaults)
 
 
-class FakeClient:
-    """Records every span it's sent. `raise_on_send` simulates an
-    unreachable/broken Neatlogs backend (acceptance 4)."""
+class FakeSpan:
+    """Records the tags it's asked to carry. `raise_on_enter`/`raise_on_exit`
+    simulate a real span failing to open/close (acceptance 4)."""
 
-    def __init__(self, raise_on_send=False):
-        self.sent = []
-        self._raise_on_send = raise_on_send
+    def __init__(self, raise_on_enter=False, raise_on_exit=False):
+        self.entered = False
+        self.tags = None
+        self._raise_on_enter = raise_on_enter
+        self._raise_on_exit = raise_on_exit
 
-    def send(self, payload):
-        if self._raise_on_send:
-            raise RuntimeError("neatlogs backend unreachable")
-        self.sent.append(payload)
+    def __enter__(self):
+        if self._raise_on_enter:
+            raise RuntimeError("span failed to open")
+        self.entered = True
+        return self
+
+    def __exit__(self, *exc_info):
+        if self._raise_on_exit:
+            raise RuntimeError("span failed to close")
+        return False
+
+    def add_tags(self, tags):
+        self.tags = tags
+
+
+class Recorder:
+    """Records every call made to the mocked init/span/flush seam."""
+
+    def __init__(self):
+        self.init_calls = []
+        self.flush_calls = 0
+        self.spans = []
 
 
 def run_cli(module, args, env_overrides=None):
@@ -85,73 +110,96 @@ def run_cli(module, args, env_overrides=None):
 
 
 # ---------------------------------------------------------------------------
-# 2. Unit tests against a mocked Neatlogs client -- zero live network calls.
+# 2. Unit tests against mocked init/span/flush -- zero live network calls.
 # ---------------------------------------------------------------------------
 
-def test_traced_run_is_a_no_op_and_builds_zero_clients_when_key_absent(monkeypatch):
-    """L18: NEATLOGS_API_KEY absent -> zero Neatlogs SDK calls, zero overhead
-    beyond a no-op -- `_build_client` (the only import point) is never
-    reached at all."""
-    build_calls = []
-    monkeypatch.setattr(tracing, "_build_client", lambda cfg: build_calls.append(cfg) or FakeClient())
+def test_traced_run_is_a_no_op_and_calls_nothing_when_key_absent(monkeypatch):
+    """L18: NEATLOGS_API_KEY absent -> zero calls into `_init`/`_span`/
+    `_flush` at all -- a true, zero-overhead no-op."""
+    recorder = Recorder()
+    monkeypatch.setattr(tracing, "_init", lambda cfg: recorder.init_calls.append(cfg))
+    monkeypatch.setattr(tracing, "_span", lambda name: recorder.spans.append(name) or FakeSpan())
+    monkeypatch.setattr(tracing, "_flush", lambda: recorder.__setattr__("flush_calls", recorder.flush_calls + 1))
 
     with tracing.traced_run("test-agent"):
         print("hello")
 
-    assert build_calls == []
+    assert recorder.init_calls == []
+    assert recorder.spans == []
+    assert recorder.flush_calls == 0
 
 
-def test_traced_run_context_manager_sends_one_span_to_mocked_client(monkeypatch):
+def test_traced_run_calls_init_then_span_then_flush_in_order(monkeypatch):
     monkeypatch.setenv("NEATLOGS_API_KEY", "neatlogs-test-key")
-    client = FakeClient()
-    monkeypatch.setattr(tracing, "_build_client", lambda cfg: client)
+    calls = []
+    fake_span = FakeSpan()
+    monkeypatch.setattr(tracing, "_init", lambda cfg: calls.append(("init", cfg.neatlogs_api_key)))
+    monkeypatch.setattr(tracing, "_span", lambda name: calls.append(("span", name)) or fake_span)
+    monkeypatch.setattr(tracing, "_flush", lambda: calls.append(("flush",)))
 
     with tracing.traced_run("guardrail"):
-        print("bank lines=54; policy_version=2026.09-1")
-        print("allow: 40/54 (74.07%)")
-        print("block: 4/54 (7.41%)")
-        print("hold: 10/54 (18.52%)")
+        calls.append(("body",))
 
-    assert len(client.sent) == 1
-    span = client.sent[0]
-    assert span["agent"] == "guardrail"
-    assert span["bank_lines"] == 54
-    assert span["guardrail_verdicts"] == {"allow": 40, "block": 4, "hold": 10}
-    assert span["status"] == "ok"
-    assert isinstance(span["duration_seconds"], float)
-    assert span["duration_seconds"] >= 0
+    assert calls == [
+        ("init", "neatlogs-test-key"),
+        ("span", "guardrail"),
+        ("body",),
+        ("flush",),
+    ]
+    assert fake_span.entered is True
+
+
+def test_init_uses_the_real_workflow_name(monkeypatch):
+    """`neatlogs.init` must be called with `workflow_name="ledger-sense"` --
+    the exact shape TAPE-1 specifies, not a guess."""
+    monkeypatch.setenv("NEATLOGS_API_KEY", "neatlogs-test-key")
+
+    class FakeNeatlogsModule:
+        WORKFLOW = "WORKFLOW"
+
+        def __init__(self):
+            self.init_kwargs = None
+
+        def init(self, **kwargs):
+            self.init_kwargs = kwargs
+
+    fake_module = FakeNeatlogsModule()
+
+    def fake_init(cfg):
+        fake_module.init(api_key=cfg.neatlogs_api_key, workflow_name="ledger-sense")
+
+    monkeypatch.setattr(tracing, "_init", fake_init)
+    monkeypatch.setattr(tracing, "_span", lambda name: FakeSpan())
+    monkeypatch.setattr(tracing, "_flush", lambda: None)
+
+    with tracing.traced_run("data"):
+        pass
+
+    assert fake_module.init_kwargs == {"api_key": "neatlogs-test-key", "workflow_name": "ledger-sense"}
 
 
 def test_traced_run_as_decorator_preserves_return_value_and_args(monkeypatch):
     monkeypatch.setenv("NEATLOGS_API_KEY", "neatlogs-test-key")
-    client = FakeClient()
-    monkeypatch.setattr(tracing, "_build_client", lambda cfg: client)
+    monkeypatch.setattr(tracing, "_init", lambda cfg: None)
+    monkeypatch.setattr(tracing, "_span", lambda name: FakeSpan())
+    monkeypatch.setattr(tracing, "_flush", lambda: None)
 
     @tracing.traced_run("matching")
     def main(argv=None):
         print("bank lines=54; ledger entries=49; matched=49")
-        print("llm_is_stub=True; llm_calls=0; adjudicator=deterministic-stub-v1")
         return 0
 
     assert main(["--foo"]) == 0
-    assert len(client.sent) == 1
-    span = client.sent[0]
-    assert span["agent"] == "matching"
-    assert span["bank_lines"] == 54
-    assert span["ledger_entries"] == 49
-    assert span["matched"] == 49
-    assert span["llm_calls"] == 0
-    assert span["llm_is_stub"] is True
 
 
 def test_traced_run_disabled_decorator_does_not_touch_stdout(monkeypatch, capsys):
-    """No key configured -> stdout is never wrapped/teed at all."""
-    monkeypatch.setattr(tracing, "_build_client", lambda cfg: FakeClient())
+    """No key configured -> stdout is never wrapped/touched at all."""
+    monkeypatch.setattr(tracing, "_init", lambda cfg: None)
+    monkeypatch.setattr(tracing, "_span", lambda name: FakeSpan())
+    monkeypatch.setattr(tracing, "_flush", lambda: None)
 
     @tracing.traced_run("routing")
     def main():
-        import sys as _sys
-        assert _sys.stdout.__class__.__name__ != "_Tee"
         print("exceptions=6; owners=11; breached=6")
         return 0
 
@@ -159,30 +207,24 @@ def test_traced_run_disabled_decorator_does_not_touch_stdout(monkeypatch, capsys
     assert "exceptions=6; owners=11; breached=6" in capsys.readouterr().out
 
 
-def test_traced_run_static_metadata_passed_through(monkeypatch):
+def test_traced_run_static_metadata_reaches_the_span_tags(monkeypatch):
     monkeypatch.setenv("NEATLOGS_API_KEY", "neatlogs-test-key")
-    client = FakeClient()
-    monkeypatch.setattr(tracing, "_build_client", lambda cfg: client)
+    fake_span = FakeSpan()
+    monkeypatch.setattr(tracing, "_init", lambda cfg: None)
+    monkeypatch.setattr(tracing, "_span", lambda name: fake_span)
+    monkeypatch.setattr(tracing, "_flush", lambda: None)
 
     with tracing.traced_run("learning", cli_command="resolve"):
         pass
 
-    assert client.sent[0]["cli_command"] == "resolve"
-
-
-def test_traced_run_static_metadata_only_reads_config_once_per_call(monkeypatch):
-    """A stray typo or unrelated exception inside `_build_client` must not
-    reach the caller either -- only ever swallowed (L18)."""
-    monkeypatch.setenv("NEATLOGS_API_KEY", "neatlogs-test-key")
-    monkeypatch.setattr(tracing, "_build_client", lambda cfg: (_ for _ in ()).throw(ImportError("no neatlogs")))
-
-    with tracing.traced_run("metrics"):
-        pass  # must not raise
+    assert fake_span.tags["cli_command"] == "resolve"
+    assert fake_span.tags["status"] == "ok"
+    assert isinstance(fake_span.tags["duration_seconds"], float)
 
 
 # ---------------------------------------------------------------------------
 # 3. Redaction -- a fake API-key-shaped string in span metadata never
-#    reaches the (mocked) client's payload.
+#    reaches the (mocked) span's tags.
 # ---------------------------------------------------------------------------
 
 FAKE_KEY = "sk-FAKEKEYVALUE1234567890ABCDEFGH"
@@ -190,34 +232,38 @@ FAKE_KEY = "sk-FAKEKEYVALUE1234567890ABCDEFGH"
 
 def test_redaction_strips_key_shaped_static_metadata(monkeypatch):
     monkeypatch.setenv("NEATLOGS_API_KEY", "neatlogs-test-key")
-    client = FakeClient()
-    monkeypatch.setattr(tracing, "_build_client", lambda cfg: client)
+    fake_span = FakeSpan()
+    monkeypatch.setattr(tracing, "_init", lambda cfg: None)
+    monkeypatch.setattr(tracing, "_span", lambda name: fake_span)
+    monkeypatch.setattr(tracing, "_flush", lambda: None)
 
     with tracing.traced_run("matching", note=FAKE_KEY):
         pass
 
-    sent_payload = client.sent[0]
-    assert FAKE_KEY not in json.dumps(sent_payload)
-    assert sent_payload["note"] == "[REDACTED]"
+    assert FAKE_KEY not in json.dumps(fake_span.tags)
+    assert fake_span.tags["note"] == "[REDACTED]"
 
 
 def test_redaction_strips_key_shaped_value_in_nested_metadata(monkeypatch):
     monkeypatch.setenv("NEATLOGS_API_KEY", "neatlogs-test-key")
-    client = FakeClient()
-    monkeypatch.setattr(tracing, "_build_client", lambda cfg: client)
+    fake_span = FakeSpan()
+    monkeypatch.setattr(tracing, "_init", lambda cfg: None)
+    monkeypatch.setattr(tracing, "_span", lambda name: fake_span)
+    monkeypatch.setattr(tracing, "_flush", lambda: None)
 
     with tracing.traced_run("learning", context={"api_key": f"OPENAI_API_KEY={FAKE_KEY}"}):
         pass
 
-    sent_payload = client.sent[0]
-    assert FAKE_KEY not in json.dumps(sent_payload)
+    assert FAKE_KEY not in json.dumps(fake_span.tags)
 
 
 def test_redaction_does_not_touch_the_real_terminal_stdout(monkeypatch, capsys):
     """Redaction protects the span sent to Neatlogs -- it must never mutate
     what the CLI itself actually prints to the terminal."""
     monkeypatch.setenv("NEATLOGS_API_KEY", "neatlogs-test-key")
-    monkeypatch.setattr(tracing, "_build_client", lambda cfg: FakeClient())
+    monkeypatch.setattr(tracing, "_init", lambda cfg: None)
+    monkeypatch.setattr(tracing, "_span", lambda name: FakeSpan())
+    monkeypatch.setattr(tracing, "_flush", lambda: None)
 
     with tracing.traced_run("matching"):
         print(f"debug key (not a real secret path, just proving passthrough): {FAKE_KEY}")
@@ -226,50 +272,81 @@ def test_redaction_does_not_touch_the_real_terminal_stdout(monkeypatch, capsys):
 
 
 # ---------------------------------------------------------------------------
-# 4. A mocked client raising an error never crashes the CLI or changes its
-#    exit code/output.
+# 4. init/span/flush raising never crashes the CLI or changes its exit
+#    code/output -- always exactly one stderr line per failure.
 # ---------------------------------------------------------------------------
 
-def test_client_raising_on_send_never_propagates_from_context_manager(monkeypatch):
+def test_init_raising_never_propagates_and_prints_one_stderr_line(monkeypatch, capsys):
     monkeypatch.setenv("NEATLOGS_API_KEY", "neatlogs-test-key")
-    monkeypatch.setattr(tracing, "_build_client", lambda cfg: FakeClient(raise_on_send=True))
+
+    def _broken_init(cfg):
+        raise ConnectionError("could not reach neatlogs")
+
+    monkeypatch.setattr(tracing, "_init", _broken_init)
+
+    with tracing.traced_run("data"):
+        pass  # must not raise
+
+    err_lines = [line for line in capsys.readouterr().err.splitlines() if line.strip()]
+    assert len(err_lines) == 1
+    assert "neatlogs init failed" in err_lines[0]
+
+
+def test_span_raising_on_enter_never_propagates_and_still_flushes(monkeypatch, capsys):
+    monkeypatch.setenv("NEATLOGS_API_KEY", "neatlogs-test-key")
+    flush_calls = []
+    monkeypatch.setattr(tracing, "_init", lambda cfg: None)
+    monkeypatch.setattr(tracing, "_span", lambda name: FakeSpan(raise_on_enter=True))
+    monkeypatch.setattr(tracing, "_flush", lambda: flush_calls.append(1))
 
     with tracing.traced_run("guardrail"):
-        pass  # must not raise despite the mocked client blowing up on send()
+        pass  # must not raise despite the mocked span blowing up on enter
+
+    err_lines = [line for line in capsys.readouterr().err.splitlines() if line.strip()]
+    assert len(err_lines) == 1
+    assert "neatlogs span failed" in err_lines[0]
+    assert flush_calls == [1]  # init still succeeded -- flush still runs (L18)
 
 
-def test_client_raising_on_send_never_changes_decorated_functions_return_value(monkeypatch):
+def test_span_raising_on_exit_never_propagates(monkeypatch):
     monkeypatch.setenv("NEATLOGS_API_KEY", "neatlogs-test-key")
-    monkeypatch.setattr(tracing, "_build_client", lambda cfg: FakeClient(raise_on_send=True))
+    monkeypatch.setattr(tracing, "_init", lambda cfg: None)
+    monkeypatch.setattr(tracing, "_span", lambda name: FakeSpan(raise_on_exit=True))
+    monkeypatch.setattr(tracing, "_flush", lambda: None)
 
     @tracing.traced_run("routing")
     def main():
-        print("exceptions=6; owners=11; breached=6")
         return 0
 
     assert main() == 0
 
 
-def test_client_construction_failure_never_propagates(monkeypatch):
-    """A broken `_build_client` (e.g. bad credentials, SDK misconfigured)
-    must degrade the same way an unreachable client does."""
+def test_flush_raising_never_propagates_and_prints_one_stderr_line(monkeypatch, capsys):
     monkeypatch.setenv("NEATLOGS_API_KEY", "neatlogs-test-key")
+    monkeypatch.setattr(tracing, "_init", lambda cfg: None)
+    monkeypatch.setattr(tracing, "_span", lambda name: FakeSpan())
 
-    def _broken_build_client(cfg):
-        raise ConnectionError("could not reach neatlogs")
+    def _broken_flush():
+        raise RuntimeError("neatlogs backend unreachable")
 
-    monkeypatch.setattr(tracing, "_build_client", _broken_build_client)
+    monkeypatch.setattr(tracing, "_flush", _broken_flush)
 
-    with tracing.traced_run("data"):
+    with tracing.traced_run("metrics"):
         pass  # must not raise
+
+    err_lines = [line for line in capsys.readouterr().err.splitlines() if line.strip()]
+    assert len(err_lines) == 1
+    assert "neatlogs flush failed" in err_lines[0]
 
 
 def test_wrapped_functions_own_exception_still_propagates(monkeypatch):
     """Tracing must never swallow a real failure from the wrapped code --
-    only its own span-emission failures are ever caught."""
+    only its own init/span/flush failures are ever caught."""
     monkeypatch.setenv("NEATLOGS_API_KEY", "neatlogs-test-key")
-    client = FakeClient()
-    monkeypatch.setattr(tracing, "_build_client", lambda cfg: client)
+    fake_span = FakeSpan()
+    monkeypatch.setattr(tracing, "_init", lambda cfg: None)
+    monkeypatch.setattr(tracing, "_span", lambda name: fake_span)
+    monkeypatch.setattr(tracing, "_flush", lambda: None)
 
     class BoomError(Exception):
         pass
@@ -280,15 +357,16 @@ def test_wrapped_functions_own_exception_still_propagates(monkeypatch):
 
     with pytest.raises(BoomError):
         main()
-    # The span for the failed run should still have been attempted/sent.
-    assert len(client.sent) == 1
-    assert client.sent[0]["status"] == "error"
-    assert "BoomError" in client.sent[0]["error"]
+    # The span should still have been closed with an error status.
+    assert fake_span.tags["status"] == "error"
+    assert "BoomError" in fake_span.tags["error"]
 
 
-def test_client_raising_still_lets_the_wrapped_functions_own_exception_through(monkeypatch):
+def test_flush_raising_still_lets_the_wrapped_functions_own_exception_through(monkeypatch):
     monkeypatch.setenv("NEATLOGS_API_KEY", "neatlogs-test-key")
-    monkeypatch.setattr(tracing, "_build_client", lambda cfg: FakeClient(raise_on_send=True))
+    monkeypatch.setattr(tracing, "_init", lambda cfg: None)
+    monkeypatch.setattr(tracing, "_span", lambda name: FakeSpan())
+    monkeypatch.setattr(tracing, "_flush", lambda: (_ for _ in ()).throw(RuntimeError("unreachable")))
 
     class BoomError(Exception):
         pass
@@ -302,9 +380,34 @@ def test_client_raising_still_lets_the_wrapped_functions_own_exception_through(m
 
 
 # ---------------------------------------------------------------------------
-# 1. Regression -- NEATLOGS_API_KEY unset -> all 6 entrypoints run
-#    byte-identical to their pre-W10 output, and each entrypoint file
-#    actually carries the one wrap-point edit.
+# Acceptance 1 (TAPE-1) -- `neatlogs.Client` is gone from the source, and a
+# keyless `--help` never raises an AttributeError building one.
+# ---------------------------------------------------------------------------
+
+def test_neatlogs_client_is_gone_from_source():
+    """The historical W10 bug is documented in this module's own docstring
+    (prose, not code) -- no actual AST `Call` node anywhere in the file may
+    construct a `neatlogs.Client(...)`."""
+    import ast
+
+    source = (REPO_ROOT / "src" / "ledger_sense" / "tracing.py").read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+            assert node.func.attr != "Client", "found a neatlogs.Client(...) construction"
+
+
+def test_keyless_matching_help_exits_clean_no_attribute_error():
+    result = run_cli("ledger_sense.matching", ["--help"])
+    assert result.returncode == 0
+    assert "AttributeError" not in result.stderr
+    assert "Traceback" not in result.stderr
+
+
+# ---------------------------------------------------------------------------
+# 1 (continued) -- Regression -- NEATLOGS_API_KEY unset -> all 6 entrypoints
+# run byte-identical to their pre-W10 output, and each entrypoint file
+# actually carries the one wrap-point edit.
 # ---------------------------------------------------------------------------
 
 ENTRYPOINT_FILES = {
@@ -315,7 +418,6 @@ ENTRYPOINT_FILES = {
     "learning": "src/ledger_sense/learning/cli.py",
     "metrics": "src/ledger_sense/metrics/cli.py",
 }
-REPO_ROOT = Path(__file__).parent.parent
 
 
 @pytest.mark.parametrize("agent_name", sorted(ENTRYPOINT_FILES))
@@ -442,8 +544,9 @@ def test_regression_metrics_cli_unset_key_output_unchanged(tmp_path):
 # 1 (continued) -- tracing enabled must never change a CLI's exit code or
 # stdout either, even though `neatlogs` itself isn't installed in this repo
 # (base install stays dependency-free, L20) -- proves the real-import path
-# degrades exactly like a mocked-client failure would (acceptance 4, at the
-# full-process level).
+# degrades exactly like a mocked-failure would (acceptance 4, at the
+# full-process level), and that no `neatlogs.Client` AttributeError is
+# possible any more (there is no such call left in the source).
 # ---------------------------------------------------------------------------
 
 def test_regression_matching_cli_with_key_set_but_neatlogs_not_installed_still_succeeds(tmp_path):
@@ -460,3 +563,6 @@ def test_regression_matching_cli_with_key_set_but_neatlogs_not_installed_still_s
         "cheap-tier match rate: 83.33% (45/54)\n"
         "llm_is_stub=True; llm_calls=0; adjudicator=deterministic-stub-v1\n"
     )
+    assert "neatlogs init failed" in result.stderr
+    assert "AttributeError" not in result.stderr
+    assert "Traceback" not in result.stderr
