@@ -17,16 +17,20 @@ raises ``DodoNotConfiguredError``, which the CLI (``cli.py``) turns into a
 clean nonzero exit with a one-line message, never a stack trace.
 
 Zero live network calls in tests (law L20): ``DodoClient`` is a structural
-protocol -- every test in ``tests/test_dodo_source.py`` /
+protocol -- every offline test in ``tests/test_dodo_source.py`` /
 ``tests/test_dodo_pairing.py`` passes a fake/mock implementation. The real
-transport (``DodoSandboxClient``) is only ever constructed by the CLI
-(``cli.py::main``) once a Dodo pull has actually been requested and
-configured -- nothing in ``tests/`` imports it with real network IO.
+transport (``DodoSandboxClient``) is otherwise only ever constructed by the
+CLI (``cli.py::main``) once a Dodo pull has actually been requested and
+configured. The sole sanctioned exception is
+``tests/test_dodo_source.py``'s single ``@pytest.mark.slow`` real-sandbox
+test (W16), which is skipped whenever a real ``DODO_API_KEY`` isn't
+configured and never runs as part of the default/CI suite.
 """
 
 from __future__ import annotations
 
 import json
+import urllib.error
 import urllib.request
 from collections import OrderedDict
 from dataclasses import dataclass
@@ -38,6 +42,18 @@ from .models import BankTransaction
 from .money import from_cents
 
 DODO_SANDBOX_BASE_URL = "https://test.dodopayments.com"
+
+# The 403 W14's live smoke test hit was *not* a wrong auth header, base URL,
+# or endpoint path -- all three were already correct (confirmed directly
+# against Dodo's real API reference at docs.dodopayments.com/api-reference,
+# and against the official `dodopayments-python` SDK source: `Authorization:
+# Bearer <key>` against `{base_url}/payments`, `base_url` = this exact
+# string for `test_mode`). The real cause: Dodo's sandbox sits behind
+# Cloudflare, which rejects `urllib.request`'s default `Python-urllib/x.y`
+# User-Agent outright (Cloudflare error 1010, "Access denied") before the
+# request ever reaches Dodo. A normal-looking `User-Agent` fixes it -- a
+# real sandbox key against this exact URL/path/header returns a real 200.
+_USER_AGENT = "ledger-sense-dodo-source/1.0 (+https://github.com/himanshu-thakur-7/Ledger-Sense)"
 
 # Defensive bound against a runaway/misbehaving pagination loop (mirrors the
 # bounded-retry discipline law L22 requires of every v2 external-API client).
@@ -67,10 +83,16 @@ class DodoNotConfiguredError(Exception):
 
 
 class DodoAPIError(Exception):
-    """Raised by ``DodoSandboxClient`` on a transport-level failure.
+    """Raised by ``DodoSandboxClient`` on a transport-level failure (a
+    configured-but-failing key, an HTTP error, exhausted retries, ...).
 
-    Never raised by anything a test constructs -- the real transport is not
-    exercised by this repo's test suite (law L20).
+    ``cli.py::main`` catches this the same way it catches
+    ``DodoNotConfiguredError`` -- a clean nonzero exit with a one-line
+    stderr message, never a stack trace (law L18). The mocked test suite
+    (law L20) only ever raises this via a fake ``DodoClient`` to exercise
+    that CLI handling; ``DodoSandboxClient`` itself (the only thing that can
+    raise it against a real HTTP response) is exercised only by the
+    opt-in ``@pytest.mark.slow`` real-sandbox test.
     """
 
 
@@ -111,6 +133,24 @@ class DodoClient(Protocol):
     def list_transactions(self, *, cursor: Optional[str] = None) -> DodoPage: ...
 
 
+def _describe_http_error(exc: urllib.error.HTTPError) -> str:
+    """One-line, bounded description of an HTTP error response.
+
+    Best-effort reads the response body (Dodo/Cloudflare error pages
+    identify themselves there, e.g. ``"error code: 1010"``) so a
+    ``DodoAPIError`` message is actually diagnostic -- never the API key
+    itself, which this never touches.
+    """
+    body = ""
+    try:
+        raw = exc.read().decode("utf-8", errors="replace")
+        body = " ".join(raw.split())[:200]
+    except Exception:
+        pass
+    description = f"HTTP {exc.code} {exc.reason}"
+    return f"{description} -- {body}" if body else description
+
+
 @dataclass
 class DodoSandboxClient:
     """Real transport: read-only ``GET /payments`` against Dodo's *sandbox* API.
@@ -130,26 +170,42 @@ class DodoSandboxClient:
     def list_transactions(self, *, cursor: Optional[str] = None) -> DodoPage:  # pragma: no cover
         # Real network IO -- deliberately excluded from coverage of the
         # offline test suite (law L20). Exercised only against the actual
-        # Dodo sandbox, by a human, outside of `pytest`.
+        # Dodo sandbox, by a human or tests/test_dodo_source.py's
+        # @pytest.mark.slow real-sandbox test, outside of the mocked suite.
         url = f"{self.base_url}/payments"
         if cursor:
             url = f"{url}?cursor={cursor}"
         request = urllib.request.Request(
-            url, headers={"Authorization": f"Bearer {self.api_key}"}, method="GET"
+            url,
+            headers={
+                "Authorization": f"Bearer {self.api_key}",
+                "Accept": "application/json",
+                "User-Agent": _USER_AGENT,
+            },
+            method="GET",
         )
-        last_error: Optional[Exception] = None
+        last_error: object = None
         payload = None
+        attempts = 0
         for attempt in range(self.max_retries):
+            attempts = attempt + 1
             try:
                 with urllib.request.urlopen(request, timeout=self.timeout_seconds) as response:
                     payload = json.loads(response.read().decode("utf-8"))
                 break
-            except Exception as exc:  # bounded retry -- never an unbounded loop
+            except urllib.error.HTTPError as exc:
+                last_error = _describe_http_error(exc)
+                if 400 <= exc.code < 500:
+                    # A client error (bad/expired key, wrong request shape)
+                    # won't fix itself on retry -- fail fast instead of
+                    # burning the full bounded-retry budget on it.
+                    break
+            except Exception as exc:  # transient network failure -- bounded retry (law L22)
                 last_error = exc
         if payload is None:
             raise DodoAPIError(
-                f"Dodo sandbox list_transactions failed after {self.max_retries} attempts: {last_error}"
-            ) from last_error
+                f"Dodo sandbox list_transactions failed after {attempts} attempt(s): {last_error}"
+            )
         items = [
             DodoRawTransaction(
                 transaction_id=item["transaction_id"],
