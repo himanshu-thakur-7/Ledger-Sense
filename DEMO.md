@@ -13,12 +13,12 @@ reproduce it yourself.
 somebody's SLA clock the moment it's born. This is that same close desk a human already runs —
 opened as one terminal, not a dashboard.
 
-**BEAT 2 — pull + look (0:20–0:50).** `desk>` is the whole interface. `pull` brings in bank
-data (live Dodo, else a labeled cache, else synthetic — whichever actually ran, printed
-honestly); `analyze` runs matching, guardrail, and routing and hands back real discrepancies —
-`discrepancies ready`.
+**BEAT 2 — pull + look (0:20–0:50).** `desk>` is the whole interface. `pull` brought in bank
+data before this session even opened — forced to the synthetic `--overlay` source so pass 1 and
+pass 2 are drawn from the same generator family (see "Honest disclosures" below); `analyze` runs
+matching, guardrail, and routing and hands back real discrepancies — `discrepancies ready`.
 
-**BEAT 3 — resolve, not approve (0:50–1:30).** No "approve" button. `resolve that one ...`
+**BEAT 3 — resolve, not approve (0:50–1:30).** No "approve" button. `resolve <exception_id> ...`
 captures one human judgment call in the matcher's own structured fields and prints the
 candidate rule in plain English, its support count against the current pile, and
 `status=candidate` — nothing is applied yet.
@@ -35,42 +35,89 @@ the desk is and whether a Neatlogs span actually went out this turn. `quit` ends
 
 ## Type this at desk>
 
-Exactly what `scripts/record_demo.sh` feeds the desk (split into two `--chat` sessions only
-because the desk's `promote` needs the real `rule_id` a prior `resolve` just minted — there's
-no other reason it isn't one session):
+Exactly what `scripts/record_demo.sh` feeds the desk — a one-shot `pull`, then three `--chat`
+sessions, split apart only because each one needs a real value (an exception_id, then a
+`rule_id`) the previous one just produced on disk, which can't be baked into a session's input
+before it exists. Stdout below is a real, reproducible run of this script (seed=42, n=400 for
+pass 1; next close's own pass 2 is fixed at n=300) — rerun `bash scripts/record_demo.sh` and you
+will get byte-identical numbers (law L4):
+
+```
+$ python -m ledger_sense.operator pull --dir data/demo/pass1 --source synthetic --seed 42 --n-cases 400
+source: synthetic (overlay)
+bank.csv rows=455; ledger.csv rows=411
+```
 
 ```
 $ python -m ledger_sense.operator chat --dir data/demo/pass1 --pass2-dir data/demo/pass2
-desk> pull                      # only typed if data/demo/pass1 has no bank.csv/ledger.csv yet
 desk> analyze
-desk> resolve that one reference_transform --reference-transform wrong --amount-class exact \
-      "AR ops always trusts an exact amount match even when the bank quotes a different reference -- recurring org behavior, not a one-off"
+bank lines=455
+exceptions=88
+top classes: amount_mismatch=31, duplicate=20, suspect_posting=19
+guardrail: allow: 416/455 (91.43%); block: 37/455 (8.13%); hold: 2/455 (0.44%)
+example exception_id: EXC-BANK-BK-P1-000004
+discrepancies ready
 desk> quit
 ```
 
 ```
-$ python -m ledger_sense.operator chat --dir data/demo/pass1 --pass2-dir data/demo/pass2
-desk> promote RULE-xxxxxxxxxxxx yes-always      # RULE-xxxxxxxxxxxx from the resolve above
+desk> resolve EXC-BANK-BK-P1-000078 reference_transform --reference-transform exact --amount-class conflict \
+      "AR ops treats an exact-reference match as the same payment even when the bank amount conflicts with the ledger -- a recurring FX/rounding pattern, not a one-off"
+resolution_id=RES-f6863e1120ac5c18
+exception_id=EXC-BANK-BK-P1-000078
+rule_id=RULE-06643eb523a5
+candidate predicate: amount_class=conflict AND reference=exact
+support count against current exception pile: 26
+status=candidate
+desk> quit
+```
+
+`EXC-BANK-BK-P1-000078` (not `analyze`'s own arbitrary first-exception example above) is the one
+this batch's `amount=conflict AND reference=exact` recurring pattern actually sits on —
+`record_demo.sh` looks it up fresh every run rather than hardcoding it, so it self-heals if the
+batch ever changes.
+
+```
+desk> promote RULE-06643eb523a5 yes-always
+RULE-06643eb523a5 <- RES-f6863e1120ac5c18
 desk> next close
+generated pass 2 data in data/demo/pass2 (seed=42, n_cases=300, overlay)
+class before -> after (rules off -> on):
+  amount_mismatch: 22 -> 13 (dropped)
+  duplicate: 15 -> 15
+  suspect_posting: 12 -> 12
+  timing: 10 -> 10
+  unidentified_counterpart: 4 -> 4
+rule_hits: 9
+trace: data/demo/pass2/demo_trace.json
 desk> status
 desk> logs
+neatlogs trace id: none (tracing disabled, or no span sent this turn)
 desk> quit
 ```
 
-Plus one raw, non-`desk>` call for BEAT 5's verbatim receipt — the exact command `next close`
-already ran internally, shown again standalone so `resolved by rule: N` prints in full:
+Plus one raw, non-`desk>` call for BEAT 5's verbatim receipt — the exact call `next close`
+already made internally, shown again standalone so `resolved by rule: N` prints in full instead
+of folded into the desk's own `rule_hits: N` summary above:
 
 ```
-$ python -m ledger_sense.learning apply-rules --outcomes ... --settlements ... \
+$ python -m ledger_sense.learning apply-rules --outcomes data/demo/pass2/.desk/matching_out/match_outcomes.csv \
+      --settlements data/demo/pass2/.desk/matching_out/ledger_settlements.csv \
       --ledger data/demo/pass2/ledger.csv --bank data/demo/pass2/bank.csv \
-      --rules data/demo/pass1/rules.json --as-of ... --out-dir ...
+      --rules data/demo/pass1/rules.json --as-of 2026-06-04T01:56:56Z \
+      --period-start 2026-01-01T20:53:22Z --period-end 2026-06-04T01:56:56Z --out-dir ...
 rules loaded: 1
-escalated lines seen: N
-escalated lines matching a rule's predicate: N
-vetoed by guardrail (would_block_or_hold != allow): 0
-predicate hit but no ledger capacity remained: 0
-resolved by rule: N
+escalated lines seen: 26
+escalated lines matching a rule's predicate: 21
+vetoed by guardrail (would_block_or_hold != allow): 10
+predicate hit but no ledger capacity remained: 2
+resolved by rule: 9
+  RULE-06643eb523a5: 9 lines resolved
 ```
+
+**This is the moment the tape actually proves learning:** 9 pass-2 lines that would otherwise
+have escalated into someone's SLA queue never get there — resolved before routing ever sees
+them, from one human judgment call made once on pass 1.
 
 ## Run it yourself
 
@@ -78,30 +125,38 @@ resolved by rule: N
 bash scripts/record_demo.sh
 ```
 
-- Needs no API keys — `DODO_API_KEY`/`OPENAI_API_KEY`/`NEATLOGS_API_KEY` are explicitly unset
-  for the run, so `pull` lands on the checked-in `dodo-cache` fixture (or synthetic, if that
-  fixture is ever removed), the same keyless v1 fallback path README.md's Sponsor disclosure
-  describes — never a live call.
-- Generates `data/demo/pass1` **only if it's missing** (`pull`, seed=1, n=200, capped at ≤400
-  — never the 25,000-row pass1/pass2 the full pipeline uses); rerunning with data already on
-  disk skips straight to `analyze` and finishes in well under two minutes.
-- `data/demo/pass2` is likewise only generated by `next close` if it isn't already there.
+- **PART A (mandatory) needs no API keys** — `DODO_API_KEY`/`OPENAI_API_KEY`/`NEATLOGS_API_KEY`
+  are explicitly unset for it, so it never makes a live call and never spends money.
+- Generates `data/demo/pass1` **only if it's missing** (`pull --source synthetic --seed 42
+  --n-cases 400`, capped at ≤400 — never the 25,000-row pass1/pass2 the full pipeline uses);
+  rerunning with data already on disk skips straight to `analyze` and finishes in a couple of
+  seconds. `data/demo/pass2` is likewise only generated by `next close` if it isn't already
+  there (fixed at seed=42, n=300 by the desk itself).
+- **PART B (optional)** runs only if *this shell's own* environment already had a real key
+  before PART A unset it — one honest, read-only line per configured integration, in a scratch
+  directory, never touching `data/demo/*`. No key anywhere → PART B prints nothing at all.
 
 ## Honest disclosures, carried over from README.md
 
-- **Dodo:** with no key configured (this recording's default), `pull` never even attempts the
-  live call — it finds Agent 1's checked-in `dodo-cache` fixture first and prints `source:
-  dodo-cache`, honestly, not `dodo (live)`. Delete that fixture and `pull` would fall one step
-  further, to the synthetic `--overlay` generator instead — both are real, on-disk fallbacks,
-  never an empty stub silently presented as live data. **Neatlogs:** with no key configured,
-  `logs` prints `neatlogs trace id: none (tracing disabled, or no span sent this turn)` — no
-  span was ever sent, and the desk says so plainly rather than staying silent about it.
+- **Dodo (source changed from the previous recording):** `pull` no longer relies on the desk's
+  own live→cache→synthetic fallback here — `record_demo.sh` now passes `--source synthetic`
+  explicitly, printed as `source: synthetic (overlay)`. Left to its own fallback, keyless `pull`
+  lands on Agent 1's checked-in `dodo-cache` fixture (real, but only 20 rows from a different
+  generator entirely), which shares no recurring defect class with pass 2's own synthetic draw —
+  a rule learned from it can support-count fine on pass 1 but can never actually fire on pass 2.
+  Forcing the same synthetic family for both passes is what makes `rule_hits>0` below honest
+  rather than lucky. **Neatlogs:** with no key configured, `logs` prints `neatlogs trace id: none
+  (tracing disabled, or no span sent this turn)` — no span was ever sent, and the desk says so
+  plainly rather than staying silent about it.
 - **Overlay:** `next close`'s own pass-2 generation always requests `--overlay`, but the
   generator only actually plants a labeled sibling cluster when this run's natural data doesn't
   already reach the demo threshold on its own — the desk's own summary line doesn't repeat that
   per-run detail, but the generator's own stdout always does, plainly, either way (run
   `python -m ledger_sense.data --seed 42 --pass-number 2 --n-cases 300 --overlay` directly to
-  see it) — never silently presented as uniform, scripted data.
+  see it) — never silently presented as uniform, scripted data. The `rule_hits: 9` learning
+  result above comes from a **naturally occurring** class (`amount_class=conflict AND
+  reference=exact`), not from the overlay's own `fee_offset` siblings, which stay separate and
+  unresolved in this batch since no promoted rule targets that class.
 - **Ownership:** routing assigns a named owner from a fixed roster via a hash of the
   counterparty. It does not discover your real organizational owner — routing exists to feed
   learning and SLA tracking, not to replace org design.
