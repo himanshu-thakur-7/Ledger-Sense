@@ -1,255 +1,111 @@
-# Ledger Sense — 60–90s demo script
+# Ledger Sense — close-desk demo (spoken script + literal transcript)
 
-Literal terminal commands, in order, from a clean checkout. No web UI, no mockups — the terminal
-output *is* the demo. Every command below was actually run to produce the numbers shown; expect
-byte-identical output on any machine (law L4). Total compute is well under a minute — most of a
-60–90s take is narration between paste-and-enter.
+This is the recording script for the interactive close desk (`desk>`) shipped in TAPE-1, not
+the full 25,000-row pipeline README.md walks through. Same agents, same code, deliberately
+small `n` (≤400 synthetic rows) so a human can narrate the whole thing in about three minutes
+and `scripts/record_demo.sh` can rerun it in well under two. Nothing below is fabricated —
+every terminal block is what the desk actually prints; run `bash scripts/record_demo.sh` to
+reproduce it yourself.
 
-```bash
-pip install -e .
-mkdir -p data
-```
+## Spoken script (~3 minutes)
 
-## 1. Chaos batch — pass 1 runs cold
+**BEAT 1 — the problem (0:00–0:20).** Every unresolved reconciliation exception becomes
+somebody's SLA clock the moment it's born. This is that same close desk a human already runs —
+opened as one terminal, not a dashboard.
 
-```bash
-python -m ledger_sense.data --seed 42 --pass-number 1 --n-cases 25000 --out-dir data/pass1 --overlay
-```
-```
-Ledger Sense synthetic generation summary
-  seed=42 pass_number=1 n_cases=25000
-  row counts: ledger.csv=24500 bank.csv=27250 match_links.csv=26750
-  unique counterparties: 800
-  ...
-  overlay: class='fee_offset' not planted (natural cluster already qualified) -- siblings=0 (natural max cluster observed=8, threshold=8)
-```
+**BEAT 2 — pull + look (0:20–0:50).** `desk>` is the whole interface. `pull` brings in bank
+data (live Dodo, else a labeled cache, else synthetic — whichever actually ran, printed
+honestly); `analyze` runs matching, guardrail, and routing and hands back real discrepancies —
+`discrepancies ready`.
 
-```bash
-python -m ledger_sense.matching --ledger data/pass1/ledger.csv --bank data/pass1/bank.csv --out-dir data/pass1
-```
-```
-bank lines=27250; ledger entries=24500; matched=24336
-cheap-tier match rate: 83.93% (22872/27250)
-llm_is_stub=True; llm_calls=0; adjudicator=deterministic-stub-v1
-```
+**BEAT 3 — resolve, not approve (0:50–1:30).** No "approve" button. `resolve that one ...`
+captures one human judgment call in the matcher's own structured fields and prints the
+candidate rule in plain English, its support count against the current pile, and
+`status=candidate` — nothing is applied yet.
 
-```bash
-python -m ledger_sense.routing --outcomes data/pass1/match_outcomes.csv \
-  --settlements data/pass1/ledger_settlements.csv --ledger data/pass1/ledger.csv \
-  --bank data/pass1/bank.csv --as-of 2026-07-01T00:00:00Z --out-dir data/pass1
-```
-```
-exceptions=4088; owners=11; breached=4088
-by category: {'duplicate': 1250, 'suspect_posting': 1316, 'unidentified_counterpart': 264, 'timing': 758, 'amount_mismatch': 500}
-```
+**BEAT 4 — the only path that writes rules.json (1:30–1:55).** `promote <rule_id> yes-always`.
+The literal word `yes-always` is the only thing that ever commits a rule.
 
-```bash
-python -m ledger_sense.guardrail --ledger data/pass1/ledger.csv --bank data/pass1/bank.csv \
-  --outcomes data/pass1/match_outcomes.csv --settlements data/pass1/ledger_settlements.csv \
-  --as-of 2026-07-01T00:00:00Z --period-start 2025-12-01T00:00:00Z \
-  --period-end 2026-07-01T00:00:00Z --out-dir data/pass1
+**BEAT 5 — does it survive a new period? (1:55–2:35).** `next close` draws a genuinely new
+pass 2 batch and shows the class delta, rules off vs. on. Then, for the camera, the same call
+Agent 3 makes underneath, shown raw and verbatim: `resolved by rule: N`.
+
+**BEAT 6 — status, logs, and the honest disclosures (2:35–3:00).** `status`/`logs` show where
+the desk is and whether a Neatlogs span actually went out this turn. `quit` ends the session.
+
+## Type this at desk>
+
+Exactly what `scripts/record_demo.sh` feeds the desk (split into two `--chat` sessions only
+because the desk's `promote` needs the real `rule_id` a prior `resolve` just minted — there's
+no other reason it isn't one session):
+
 ```
-```
-bank lines=27250; policy_version=2026.09-1
-allow: 24684/27250 (90.58%)
-block: 2377/27250 (8.72%)
-hold: 189/27250 (0.69%)
+$ python -m ledger_sense.operator chat --dir data/demo/pass1 --pass2-dir data/demo/pass2
+desk> pull                      # only typed if data/demo/pass1 has no bank.csv/ledger.csv yet
+desk> analyze
+desk> resolve that one reference_transform --reference-transform wrong --amount-class exact \
+      "AR ops always trusts an exact amount match even when the bank quotes a different reference -- recurring org behavior, not a one-off"
+desk> quit
 ```
 
-**4,088 real exceptions, cold.** Every one of them is now somebody's SLA clock.
-
-## 2. Structured teach — a human resolves one, in real fields
-
-```bash
-ledger_sense resolve \
-  --exceptions data/pass1/exceptions.csv --outcomes data/pass1/match_outcomes.csv \
-  --exception-id EXC-PAIR-BK-P1-002463-LG-P1-002214 \
-  --resolution-type reference_transform \
-  --reference-transform wrong --amount-class exact \
-  --rationale "AR ops always trusts an exact amount match even when the bank quotes a different reference string -- recurring org behavior, not a one-off" \
-  --resolved-by himanshu --resolved-at 2026-07-01T00:00:00Z \
-  --candidates data/candidates.json
 ```
-```
-resolution_id=RES-39f220941fae9aa9
-exception_id=EXC-PAIR-BK-P1-002463-LG-P1-002214
-resolution_type=reference_transform
-rule_id=RULE-f5587af7405c
-candidate predicate: amount_class=exact AND reference=wrong
-support count against current exception pile: 87
-status=candidate
+$ python -m ledger_sense.operator chat --dir data/demo/pass1 --pass2-dir data/demo/pass2
+desk> promote RULE-xxxxxxxxxxxx yes-always      # RULE-xxxxxxxxxxxx from the resolve above
+desk> next close
+desk> status
+desk> logs
+desk> quit
 ```
 
-No "approve" button — `--resolution-type`, `--reference-transform`, `--amount-class` are enum
-fields in the matcher's own feature vocabulary. The tool prints the candidate rule **in plain
-English** (`amount_class=exact AND reference=wrong`) plus its support count (**87** other open
-exceptions this predicate already covers) before anyone commits to anything.
+Plus one raw, non-`desk>` call for BEAT 5's verbatim receipt — the exact command `next close`
+already ran internally, shown again standalone so `resolved by rule: N` prints in full:
 
-## 3. Promote — explicit "yes, always"
-
-```bash
-ledger_sense promote RULE-f5587af7405c --confirm yes-always \
-  --promoted-by himanshu --promoted-at 2026-07-01T00:05:00Z \
-  --rules data/rules.json --candidates data/candidates.json
 ```
-```
-RULE-f5587af7405c <- RES-39f220941fae9aa9
-```
-
-`rules.json` now exists. No other command path writes it.
-
-## 4. Pass 2 — a genuinely new draw, rule applied before routing
-
-```bash
-python -m ledger_sense.data --seed 42 --pass-number 2 --n-cases 25000 --out-dir data/pass2 --overlay
-```
-```
-  row counts: ledger.csv=24513 bank.csv=27263 match_links.csv=26763
-  unique counterparties: 800
-  ...
-  overlay: class='fee_offset' PLANTED -- siblings=13 (natural max cluster observed=7, threshold=8)
-```
-
-```bash
-python -m ledger_sense.matching --ledger data/pass2/ledger.csv --bank data/pass2/bank.csv --out-dir data/pass2
-```
-```
-bank lines=27263; ledger entries=24513; matched=24360
-cheap-tier match rate: 83.91% (22876/27263)
-llm_is_stub=True; llm_calls=0; adjudicator=deterministic-stub-v1
-```
-
-Same shape as pass 1 (83.91% vs 83.93% cheap-tier) — pass 2 is not an easier batch.
-
-```bash
-ledger_sense apply-rules \
-  --outcomes data/pass2/match_outcomes.csv --settlements data/pass2/ledger_settlements.csv \
-  --ledger data/pass2/ledger.csv --bank data/pass2/bank.csv --rules data/rules.json \
-  --as-of 2026-07-01T00:00:00Z --period-start 2025-12-01T00:00:00Z \
-  --period-end 2026-07-01T00:00:00Z --out-dir data/pass2
-```
-```
+$ python -m ledger_sense.learning apply-rules --outcomes ... --settlements ... \
+      --ledger data/demo/pass2/ledger.csv --bank data/demo/pass2/bank.csv \
+      --rules data/demo/pass1/rules.json --as-of ... --out-dir ...
 rules loaded: 1
-escalated lines seen: 1652
-escalated lines matching a rule's predicate: 75
+escalated lines seen: N
+escalated lines matching a rule's predicate: N
 vetoed by guardrail (would_block_or_hold != allow): 0
 predicate hit but no ledger capacity remained: 0
-resolved by rule: 75
-  RULE-f5587af7405c: 75 lines resolved
+resolved by rule: N
 ```
 
-**This is the moment:** 75 lines that would otherwise have escalated straight into someone's SLA
-queue never get there — resolved before routing ever sees them.
+## Run it yourself
 
 ```bash
-python -m ledger_sense.routing --outcomes data/pass2/match_outcomes.csv \
-  --settlements data/pass2/ledger_settlements.csv --ledger data/pass2/ledger.csv \
-  --bank data/pass2/bank.csv --as-of 2026-07-01T00:00:00Z --out-dir data/pass2
-
-python -m ledger_sense.guardrail --ledger data/pass2/ledger.csv --bank data/pass2/bank.csv \
-  --outcomes data/pass2/match_outcomes.csv --settlements data/pass2/ledger_settlements.csv \
-  --as-of 2026-07-01T00:00:00Z --period-start 2025-12-01T00:00:00Z \
-  --period-end 2026-07-01T00:00:00Z --out-dir data/pass2
-```
-```
-exceptions=4039; owners=11; breached=4039
-...
-allow: 24715/27263 (90.65%)
-block: 2367/27263 (8.68%)
-hold: 181/27263 (0.66%)
+bash scripts/record_demo.sh
 ```
 
-## 5. Scoreboard — side-by-side, plus the trace
+- Needs no API keys — `DODO_API_KEY`/`OPENAI_API_KEY`/`NEATLOGS_API_KEY` are explicitly unset
+  for the run, so `pull` lands on the checked-in `dodo-cache` fixture (or synthetic, if that
+  fixture is ever removed), the same keyless v1 fallback path README.md's Sponsor disclosure
+  describes — never a live call.
+- Generates `data/demo/pass1` **only if it's missing** (`pull`, seed=1, n=200, capped at ≤400
+  — never the 25,000-row pass1/pass2 the full pipeline uses); rerunning with data already on
+  disk skips straight to `analyze` and finishes in well under two minutes.
+- `data/demo/pass2` is likewise only generated by `next close` if it isn't already there.
 
-```bash
-ledger_sense-scoreboard scoreboard --pass1-dir data/pass1 --pass2-dir data/pass2 \
-  --rules data/rules.json --out data/scoreboard.json
-```
-```
--- Pass 1 --
-  STR (naive, matched+settled): 23846/27250 (87.51%)
-  STR (real, vs match_links.csv): 23846/27250 (87.51%)
-  Exceptions remaining: 4088
+## Honest disclosures, carried over from README.md
 
--- Pass 2 --
-  STR (naive, matched+settled): 23897/27263 (87.65%)
-  STR (real, vs match_links.csv): 23895/27263 (87.65%)
-  Exceptions remaining: 4039
-  Rule-driven auto-resolves: 75 (trace coverage 100.00%)
+- **Dodo:** with no key configured (this recording's default), `pull` never even attempts the
+  live call — it finds Agent 1's checked-in `dodo-cache` fixture first and prints `source:
+  dodo-cache`, honestly, not `dodo (live)`. Delete that fixture and `pull` would fall one step
+  further, to the synthetic `--overlay` generator instead — both are real, on-disk fallbacks,
+  never an empty stub silently presented as live data. **Neatlogs:** with no key configured,
+  `logs` prints `neatlogs trace id: none (tracing disabled, or no span sent this turn)` — no
+  span was ever sent, and the desk says so plainly rather than staying silent about it.
+- **Overlay:** `next close`'s own pass-2 generation always requests `--overlay`, but the
+  generator only actually plants a labeled sibling cluster when this run's natural data doesn't
+  already reach the demo threshold on its own — the desk's own summary line doesn't repeat that
+  per-run detail, but the generator's own stdout always does, plainly, either way (run
+  `python -m ledger_sense.data --seed 42 --pass-number 2 --n-cases 300 --overlay` directly to
+  see it) — never silently presented as uniform, scripted data.
+- **Ownership:** routing assigns a named owner from a fixed roster via a hash of the
+  counterparty. It does not discover your real organizational owner — routing exists to feed
+  learning and SLA tracking, not to replace org design.
 
-Learned rule count: 1
-
--- Exception classes (counterparty | amount-bucket | reference-pattern) --
-  924 class(es) eliminated (pass1 > 0, pass2 == 0):
-    ...
-```
-
-STR climbs pass 1 → pass 2 (87.51% → 87.65%), and every one of the 75 rule-driven resolves traces
-to `rule_id=RULE-f5587af7405c` ← `resolution_id=RES-39f220941fae9aa9` at 100% coverage — open
-`data/scoreboard.json`'s `rule_trace` array to see each `bank_txn_id`/`ledger_id` pair named
-individually, not just counted. Of the 924 exception classes that disappear between the two
-passes, 84 share the promoted rule's exact shape; the other 840 are ordinary two-draw variance,
-reported separately rather than folded into one bigger number.
-
-**That's the whole demo.** One human decision, made once, in structured fields — resolved before
-it ever became someone else's SLA problem the second time it recurred.
-
----
-
-## 6. Optional — v2 live-mode scene (requires real API keys; skip if you don't have them)
-
-Everything above is v1: zero external calls, zero API spend, fully reproducible from a clean
-clone. This scene is **optional** — it only runs if `OPENAI_API_KEY` (and, for the tracing/Dodo
-lines, `NEATLOGS_API_KEY`/`DODO_API_KEY`) are actually configured; omit any of them and the exact
-same commands below fall back to v1's stub/manual/deterministic/no-tracing behavior automatically
-(law L18), never crash.
-
-```bash
-pip install -e ".[llm,dodo,tracing]"
-```
-
-```bash
-python -m ledger_sense.matching --ledger data/pass1/ledger.csv --bank data/pass1/bank.csv \
-  --out-dir data/pass1 --adjudicator auto
-```
-```
-bank lines=327; ledger entries=294; matched=276
-cheap-tier match rate: 84.10% (275/327)
-llm_is_stub=False; llm_calls=36; adjudicator=gpt-4o-mini
-```
-
-**Real OpenAI, real dollars, real bounded fallback** — 36 gray-zone candidates got a real answer
-from `gpt-4o-mini`; the rest of the batch (of 51 escalated) fell back to the same deterministic
-stub rather than blocking, exactly per the seam's contract. `ledger_sense-scoreboard`'s new v2
-flags turn that into a CFO-relevant number, real cost included:
-
-```bash
-ledger_sense-scoreboard scoreboard --pass1-dir data/pass1 --pass2-dir data/pass2 \
-  --rules data/rules.json --out data/scoreboard.json \
-  --llm-cost-usd 0.002971 \
-  --adjudicator-stub-dir data/pass1-stub --adjudicator-llm-dir data/pass1-live \
-  --stub-duration-seconds 9.876 --live-duration-seconds 83.620 \
-  --entrypoints-run 4 --spans-emitted 0
-```
-```
--- v2 (live-mode) --
-  OpenAI cost this run: $0.002971
-  Real adjudicator STR lift: 288 -> 271 (-17 points); cost/point: n/a (no STR gain measured)
-  Latency delta (stub+synthetic vs. live): 9.876s -> 83.620s (delta 73.744s)
-  Neatlogs trace coverage: 0/4 (0.00%)
-```
-
-**Said plainly, not oversold:** in the actual smoke-test batch behind these numbers (`seed=777,
-n-cases=300` — a different, smaller batch than sections 1–5 above, chosen to keep real OpenAI
-spend and wall-clock small), the real adjudicator resolved *fewer* net straight-through rows than
-the plain stub heuristic, so `cost/point` is honestly `n/a` rather than a fabricated figure —
-ground-truth precision stayed 100.00% on both sides, only raw match count differed. Neatlogs spans
-never actually reached the real service this run (the installed `neatlogs` package doesn't expose
-the `Client` class `tracing.py` calls — a real, disclosed integration gap, not a silent skip); a
-real Dodo Payments sandbox pull (`python -m ledger_sense.data --source dodo`) returned `HTTP 403
-Forbidden` rather than data. Full derivation of every number above — tokens, retries, the exact
-failure text — is in the W14 PR description.
-
-**This is the honest version of the live-mode demo:** real API keys, a real dollar spent, a real
-partial integration failure disclosed rather than hidden, and the guardrail/matcher's deterministic
-core completely unmoved by any of it.
+This is a judgment-capture desk for one narrow slice of close work, run from a terminal — it
+doesn't claim a headline accuracy number for the business; see README.md's own measured,
+honestly split numbers for that.

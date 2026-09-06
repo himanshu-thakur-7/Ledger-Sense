@@ -236,6 +236,29 @@ occurring class at the gate. The rule promoted and measured above was learned fr
 **naturally occurring** class, not the overlay; the overlay siblings are separate, still-unresolved
 rows in this particular run, since no promoted rule targets `fee_offset`.
 
+## Recording
+
+`bash scripts/record_demo.sh` drives the real interactive close desk (`desk> ` — see
+[operator/](src/ledger_sense/operator)) end to end and prints exactly what a human recording the
+demo would type and see — nothing pre-canned. It's the companion to `DEMO.md`, which carries the
+~3-minute spoken script alongside the literal `desk>` transcript.
+
+```bash
+bash scripts/record_demo.sh
+```
+
+- **Small and keyless on purpose.** `DODO_API_KEY`/`OPENAI_API_KEY`/`NEATLOGS_API_KEY` are
+  unset for the run, and `n<=400` throughout (`pull`=200, `next close`=300) — this is a fast
+  recording aid, not another run of the 25,000-row pipeline measured above. It generates
+  `data/demo/pass1` only if that directory is missing, and finishes in a couple of seconds when
+  the data is already there.
+- **Two `desk> ` chat sessions, not one.** `promote` needs the real `rule_id` a prior `resolve`
+  just minted, and that can't be baked into a script's input ahead of time — so the recording
+  captures it from the first session's own output and feeds it into the second.
+- Ends with one raw, non-`desk>` call to `ledger_sense apply-rules` — the same call `next close`
+  already makes internally, re-run standalone so its full receipt (`resolved by rule: N`)
+  prints verbatim rather than folded into the desk's own summary line.
+
 ## v2 — real integrations (optional, live-mode only)
 
 Everything above this section is v1, unchanged: zero external calls, zero API spend, the
