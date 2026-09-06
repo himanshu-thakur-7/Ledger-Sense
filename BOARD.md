@@ -300,10 +300,15 @@ category/named owner/clock; GT duplicates → duplicate 100%; guardrail bait →
 ---
 
 ### CARD W4 — Agent 4 Escalation / Guardrail
-**Status:** spawned — running as session `ledger-sense-9` ("W4 guardrail"), branch
-`w4-guardrail`. (Prior attempt `ledger-sense-7` died with zero pushed work — no branch, no PR —
-replaced, not resumed.) Running in parallel with W3 (`guardrail/**` vs `routing/**` — disjoint
-file sets, per the parallelism rule below).
+**Status:** merged (PR #5, `838f09b`, squash-merged by orchestrator per explicit human
+authorization — no GitHub review, human asleep-adjacent). (Prior attempt `ledger-sense-7` died
+with zero pushed work — replaced by `ledger-sense-9`, not resumed.) Real seed=42 pass-1 run,
+explicit full-batch period (2025-12-01..2026-07-01): allow 90.58%, block 8.72%, hold 0.69% —
+block matches the spec's ~10.4% reference almost exactly. Default single-calendar-month period
+against this generator's ~6-month `value_date` spread produces a much higher hold rate by
+design (documented, CLI-overridable). `duplicate_release` independently recovers all 1,250
+ground-truth duplicate legs 1:1; 0 clean cheap-tier auto-matches ever blocked. Isolation clean,
+no float, byte-identical reruns, 147/147 full-suite tests green at merge time.
 **Depends:** W2 merged (MAY run in parallel with W3)
 **Branch:** `w4-guardrail`
 **Reads:** `ledger.csv`, `bank.csv`; Agent 1–2 outputs only for corroboration / carrying
@@ -351,7 +356,7 @@ Agent 4 policies — those are Agent 1's guardrail-interlock (§5.6), already im
 ---
 
 ### CARD W5 — Agent 3 Resolution-Learning (CORE BET)
-**Status:** todo
+**Status:** spawned
 **Depends:** W2 AND W3 AND W4 merged
 **Branch:** `w5-learning`
 **Reads:** `exceptions.csv`; one structured human resolution; Agent 4 veto API
