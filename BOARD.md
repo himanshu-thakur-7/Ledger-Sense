@@ -256,7 +256,12 @@ runs byte-identical CSVs.
 ---
 
 ### CARD W3 — Agent 2 Ownership / Routing
-**Status:** spawned
+**Status:** merged (PR #4, `d54d424`, squash-merged by orchestrator per explicit human
+authorization — no GitHub review, human asleep-adjacent). Measured seed=42 pass 1, overlay
+off, real 25k-case batch (matching rerun locally to reproduce W2's 83.93% cheap-tier before
+routing): STR=87.51% (target ~87–88%), GT duplicates → duplicate 100%, guardrail bait →
+suspect_posting 100% (target ≥95%), 100% of routed rows carry category+owner+clock, two full
+reruns byte-identical, 176/176 repo tests green.
 **Depends:** W2 merged
 **Branch:** `w3-routing`
 **Reads:** Agent 1 output files only
