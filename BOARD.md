@@ -1194,3 +1194,58 @@ matching/routing internals (subprocess or published CLIs only).
 
 **Laws:** L1, L3, L14, L18, L19.
 **Stop.**
+
+---
+
+## Orchestrator handoff (2026-09-06)
+
+This orchestrator session is being replaced. A fresh orchestrator takes over from here — this
+section is the state it needs, so nothing in flight gets lost or duplicated.
+
+**Main tip:** `b3c954d` — all of W0–W14 plus W16 merged (PRs #1–#14, #16, squash-merged by this
+orchestrator throughout under standing human authorization to merge v2-and-later cards
+directly once verified — file scope, CI, no leaked secrets, TDD evidence, and specifically L21
+guardrail-independence for every LLM seam). Sanity-checked repeatedly: `pip install -e .` +
+`pytest -q` green at every merge point, most recently 452 passed / 2 skipped.
+
+**Live sessions at handoff:**
+- **`ledger-sense-23` (TAPE-1 desk) — still actively working, no PR yet.** Read TAPE-1's card
+  above before touching this. **Critical: this card's PR must be merged by the human, not the
+  orchestrator** — that's an explicit, scoped override of the standing auto-merge
+  authorization, given by the human for this card only. Verify it thoroughly when its PR lands
+  (same rigor as every other card: file-scope diff, no leaked secrets, TDD evidence, the L21
+  guardrail-independence check especially since it touches an interactive surface) and report
+  to the human — do not click merge yourself.
+- **`ledger-sense-21` (W16 dodo fix) — session shows idle, but its work is already merged**
+  (PR #16, `415dd81`). No action needed; this is just stale session state.
+- **`ledger-sense-19` (W14) — merged, done.** No action needed.
+
+**Died with zero pushed work — needs respawning:**
+- **W15 (Neatlogs fix)** — spawned as `ledger-sense-20`, went idle after ~11 min with nothing
+  pushed. Superseded: TAPE-1 (part A) now owns this fix with a more precise spec than W15 was
+  given. Do not respawn W15 standalone — it's folded into TAPE-1.
+- **W17 (docs & handoff polish)** — spawned as `ledger-sense-22`, terminated with zero pushed
+  work (no branch, no PR — confirmed via `git ls-remote` and `gh pr list --state all`). This
+  one is NOT superseded by anything else and still needs doing. **Respawn W17 from its card
+  above**, unmodified — the card itself is fine, the worker just didn't produce anything. Two
+  dead workers with no output in the same session is worth noticing as a pattern, not just
+  respawning blindly a third time if it happens again.
+
+**Standing rules the next orchestrator should keep:**
+- Merge via `gh pr merge --squash --admin` (GitHub-side only) is authorized for every card
+  EXCEPT TAPE-1. Never push local commits to `main`, never resolve merge conflicts in the
+  orchestrator session — send the worker back to rebase instead.
+- Verify every PR before merging: file scope matches the card's Write-only list exactly, CI
+  green, zero leaked secrets (grep the diff directly against the actual configured key
+  fragments, don't just trust GitGuardian or the PR body), zero `float()`, and for any LLM seam
+  specifically — L21 (guardrail independence) must be checked, not assumed.
+- Real API keys (`OPENAI_API_KEY`/`DODO_API_KEY`/`DODO_ENVIRONMENT`/`NEATLOGS_API_KEY`) are
+  configured on the AO project (`ao project set-config ledger-sense`). Never print/log/commit
+  the raw values — only derived numbers (cost, tokens, latency, row counts) belong in any PR
+  body or doc.
+- Kill list still stands: no web UI/dashboard, no production deployment/infra. TAPE-1's
+  terminal "close desk" is CLI/interactive, not a web UI, and was explicitly scoped by the
+  human after I flagged the conflict with the standing kill list — it does not reopen that
+  decision for anything else.
+- `.env` is gitignored (fixed early in v2 after a real gap was found in W8's own PR). Keep it
+  that way.
