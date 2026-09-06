@@ -949,7 +949,7 @@ degrade gracefully (L18 held in both cases — nothing crashed) but don't actual
 the real third-party service. These are the fixes. Disjoint files, run in parallel.
 
 ### CARD W15 — Fix Neatlogs tracing against the real SDK
-**Status:** ready to spawn
+**Status:** spawned (session ledger-sense-20)
 **Depends:** W10 merged (already is)
 **Branch:** `w15-neatlogs-fix`
 **Reads:** `LEDGER-SENSE-v2-PRD.md`, `src/ledger_sense/tracing.py` (current, broken
@@ -994,7 +994,7 @@ logic; widen scope beyond fixing the actual client construction/send call.
 ---
 
 ### CARD W16 — Fix Dodo Payments sandbox request shape + error handling
-**Status:** ready to spawn
+**Status:** spawned (session ledger-sense-21)
 **Depends:** W11 merged (already is)
 **Branch:** `w16-dodo-fix`
 **Reads:** `LEDGER-SENSE-v2-PRD.md`, `src/ledger_sense/data/dodo_source.py` (current, gets 403),
