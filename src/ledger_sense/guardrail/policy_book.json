@@ -1,0 +1,21 @@
+{
+  "policy_version": "2026.09-1",
+  "denied_parties": [
+    {"name": "ORBEX", "id": null},
+    {"name": "ZANTHRIX", "id": null},
+    {"name": "KELWORTH TRADING", "id": null},
+    {"name": "VELDANE CAPITAL", "id": null},
+    {"name": "MERCOR DYNAMICS", "id": null},
+    {"name": "IRONCLAD BROKERAGE", "id": null},
+    {"name": "SABLE RIDGE PARTNERS", "id": null},
+    {"name": "QUENTARA GLOBAL", "id": null},
+    {"name": "PALISADE UNION TRUST", "id": null},
+    {"name": "NORTHGATE BULLION", "id": null}
+  ],
+  "dual_control_threshold": "200000.00",
+  "required_approvals": {
+    "dual_control": ["treasury_dual_control"],
+    "out_of_period": ["controller_period_override"],
+    "upstream_veto_hold": ["controller_review"]
+  }
+}
