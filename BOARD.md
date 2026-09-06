@@ -463,7 +463,15 @@ scoreboard` — use the real invocation in the demo script.
 ---
 
 ### CARD W7 — Ship surface
-**Status:** spawned
+**Status:** merged (PR #8, `dd3540b`, squash-merged by orchestrator per explicit human
+authorization). **BUILD COMPLETE — all 8 cards (W0–W7) on main.** Verified before merge: file
+scope exactly README.md + DEMO.md, all four locked disclosures present verbatim (sponsor stub,
+overlay — fired pass-2 this run at 13 siblings, honestly reported since pass-1's natural
+cluster already met the gate without it — ownership framing, decoy-name limitation whose
+referenced regression test was confirmed to actually exist on main), no "routes to the right
+human in the org," no web UI, correct `ledger_sense-scoreboard` invocation, numbers from the
+worker's own real run rather than copied from a prior PR body. Post-merge sanity check green:
+277 passed, 2 skipped (expected — slow full-pipeline tests need generated data).
 **Depends:** W6 merged
 **Branch:** `w7-ship`
 **Writes:** `README.md`, `DEMO.md`
