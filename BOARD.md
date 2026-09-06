@@ -1032,3 +1032,60 @@ calls; any payment creation.
 
 **Laws:** L3, L18, L19, L20
 **Stop.**
+
+---
+
+### CARD W17 — Docs & handoff polish (not a UI card, not infra)
+
+Human's own scope call, locked: "keep CLI-only, skip UI" for the demo surface, and "docs &
+handoff polish" (not real deployment/infra) for "production readiness." This card is the
+concrete result — presentation and accumulation of everything W0–W16 already built, zero new
+product surface, zero architecture change.
+
+**Status:** ready to spawn
+**Depends:** W14 merged (already is; does not depend on W15/W16 — disjoint files, runs in
+parallel with them)
+**Branch:** `w17-docs-polish`
+**Reads:** everything — `Ledger-Sense-PRD.pdf`, `LEDGER-SENSE-v2-PRD.md`, `BOARD.md`, current
+`README.md`/`DEMO.md`, the full git log (`git log --oneline`) for the real W0–W16 history
+**Writes / may touch:**
+- `README.md`, `DEMO.md` (polish only — wording, structure, recording-pacing notes; no code)
+- `LICENSE` (new — MIT, standard hackathon default; note this choice plainly, human can swap it)
+- `CONTRIBUTING.md` (new — brief: how to run tests, the file-spine/isolation discipline, how a
+  new card would be scoped)
+- `ARCHITECTURE.md` (new — a diagram, ASCII or Mermaid in a fenced code block, no generated
+  images needed, of the 5-agent v1 pipeline + the v2 seams bolted onto it; also state plainly,
+  near the top, that this is a CLI/batch/file-based tool by design, not a web app or dashboard)
+- `CHANGELOG.md` (new — the real build history: v1 W0–W7, v2 W8–W14, the W15/W16 fixes once
+  they land, one line per card with its PR number and one-sentence outcome — pull this from
+  actual git log / PR history, not from memory or invention)
+
+**Must implement:**
+- `ARCHITECTURE.md` diagram must match the actual code (`src/ledger_sense/{data,matching,
+  routing,guardrail,learning,metrics}` + `config.py`/`llm_client.py`/`tracing.py`) — verify
+  against the real file tree, don't describe an idealized version.
+- `CHANGELOG.md` entries must cite real PR numbers and real commit SHAs from `git log`/`gh pr
+  list` — every claim checkable, none invented.
+- `README.md`/`DEMO.md` polish must not add or imply a UI/dashboard exists — the CLI-only demo
+  script stays the demo. If you find yourself drafting a screenshot of a web page, stop; that's
+  out of scope per the human's own locked call.
+- `LICENSE`: MIT, with the actual copyright holder line left as a placeholder
+  (`Copyright (c) 2026 <project owner>`) since this orchestrator doesn't have authority to put a
+  real legal name in a license file.
+
+**Does not:** any code in `src/`; any new CLI flags; any web UI, dashboard, or generated
+screenshot/mockup; any infra/Docker/hosting; touch `BOARD.md` (orchestrator-owned).
+
+**Acceptance:**
+1. `README.md`/`DEMO.md` read cleanly start to finish, no dead links, no claims that don't match
+   the shipped code
+2. `ARCHITECTURE.md`'s diagram matches the real package structure (spot-checkable against
+   `src/ledger_sense/`)
+3. `CHANGELOG.md`'s every entry cites a real, verifiable PR number/commit
+4. `LICENSE` and `CONTRIBUTING.md` exist and are accurate to this repo (not generic boilerplate
+   that doesn't mention the actual test command, actual isolation-test discipline, etc.)
+5. Zero code changes (`git diff --stat` shows only the files listed above)
+
+**Laws:** none of the engineering laws apply directly (docs-only card) — but do not violate L15
+(no dashboard) or the v2 "explicitly not doing" list (no UI, no infra) in what you write.
+**Stop. This does not depend on or block W15/W16.**
