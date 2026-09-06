@@ -3,10 +3,12 @@
 import argparse
 from decimal import Decimal
 
+from ..tracing import traced_run
 from .engine import run
 from .period import parse_instant
 
 
+@traced_run("guardrail")
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Agent 4 deterministic release-decision guardrail (spec §8)")
     parser.add_argument("--ledger", required=True)

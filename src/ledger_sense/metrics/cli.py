@@ -29,6 +29,7 @@ import json
 import sys
 from pathlib import Path
 
+from ..tracing import traced_run
 from . import io as metrics_io
 from .report import render_report
 from .scoreboard import ScoreboardError, build_scoreboard
@@ -103,6 +104,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     return parser
 
 
+@traced_run("metrics")
 def main(argv=None) -> int:
     args = build_arg_parser().parse_args(argv)
     return args.func(args)
