@@ -949,7 +949,11 @@ degrade gracefully (L18 held in both cases — nothing crashed) but don't actual
 the real third-party service. These are the fixes. Disjoint files, run in parallel.
 
 ### CARD W15 — Fix Neatlogs tracing against the real SDK
-**Status:** spawned (session ledger-sense-20)
+**Status:** superseded by TAPE-1 (below). The spawned attempt (session `ledger-sense-20`)
+produced zero pushed work after ~11 minutes idle -- killed, workspace preserved, nothing lost.
+The human then supplied a materially more precise spec for this exact fix (real
+`neatlogs.init`/`neatlogs.span` call shape, not a guess) bundled into TAPE-1. Do not respawn
+this card standalone; TAPE-1 owns it now.
 **Depends:** W10 merged (already is)
 **Branch:** `w15-neatlogs-fix`
 **Reads:** `LEDGER-SENSE-v2-PRD.md`, `src/ledger_sense/tracing.py` (current, broken
@@ -994,7 +998,15 @@ logic; widen scope beyond fixing the actual client construction/send call.
 ---
 
 ### CARD W16 — Fix Dodo Payments sandbox request shape + error handling
-**Status:** spawned (session ledger-sense-21)
+**Status:** merged (PR #16, `415dd81`, squash-merged by orchestrator per standing human
+authorization). Real root cause: Dodo's sandbox sits behind Cloudflare, which rejects
+urllib's default User-Agent (error 1010) before the request reaches Dodo's app layer -- auth
+header/base URL/endpoint path were already correct. Fixed with a normal User-Agent + Accept
+header, verified against the real live sandbox (curl proof in the PR): 200 with an empty
+account, and a real bad-key 401 now degrades to one clean stderr line + exit 1 instead of a
+traceback. 452 passed at merge. **Note for TAPE-1:** the base Dodo request/auth fix and
+DodoAPIError clean-exit handling are DONE -- TAPE-1's Dodo-touching work should verify/extend
+(the `--source dodo-cache` fallback specifically) rather than re-fix what's already correct.
 **Depends:** W11 merged (already is)
 **Branch:** `w16-dodo-fix`
 **Reads:** `LEDGER-SENSE-v2-PRD.md`, `src/ledger_sense/data/dodo_source.py` (current, gets 403),
@@ -1089,3 +1101,96 @@ screenshot/mockup; any infra/Docker/hosting; touch `BOARD.md` (orchestrator-owne
 **Laws:** none of the engineering laws apply directly (docs-only card) — but do not violate L15
 (no dashboard) or the v2 "explicitly not doing" list (no UI, no infra) in what you write.
 **Stop. This does not depend on or block W15/W16.**
+
+---
+
+### CARD TAPE-1 — Close desk (interactive) + real Neatlogs/Dodo seams
+
+Human-authored card, human's own naming kept as given (not folded into the W-numbering).
+Supersedes W15 entirely (see W15's card above). Overlaps W16 on `dodo_source.py` only — W16
+already merged (PR #16) the base request/auth fix and clean `DodoAPIError` exit; TAPE-1's Dodo
+work here is scoped down to verify/extend (the `dodo-cache` fallback path specifically), not
+re-fix what's already correct.
+
+**Status:** spawned
+**Depends:** main tip as fetched at spawn time (post-W16 merge). Do not reopen W2–W5
+scoring/weights/policy.
+**Branch:** `tape-1-desk`
+**Merge rule — explicit override, honor exactly:** Human merges this one. Orchestrator does
+NOT merge unless separately told to, regardless of how green the PR comes back. This overrides
+the standing v2 auto-merge authorization for this card only.
+
+**Product (locked by the human):** a CFO-office close desk in the terminal. Human types short
+orders. Agents still only talk through files. Desk never writes `rules.json` except by calling
+the existing `ledger_sense promote --confirm yes-always`.
+
+**Writes / may touch ONLY:**
+- `src/ledger_sense/tracing.py`
+- `src/ledger_sense/data/dodo_source.py` (verify/extend only — see overlap note above)
+- `src/ledger_sense/config.py` (env aliases only)
+- `src/ledger_sense/operator/**` (NEW)
+- `tests/test_tracing.py`, `tests/test_dodo_source.py`, `tests/test_operator.py`
+- `pyproject.toml` (console script `ledger-sense-desk`)
+- `.env.example` (aliases only)
+- `tests/fixtures/dodo_sandbox_cache.json` (only if live Dodo cannot 200)
+
+**Must implement:**
+
+A) `tracing.py` — real SDK, not `neatlogs.Client` (which doesn't exist — confirmed by W14):
+`neatlogs.init(api_key=..., workflow_name="ledger-sense")`, wrap `traced_run` with
+`neatlogs.span` (kind=WORKFLOW, name=agent), flush/shutdown on CLI exit, init BEFORE any
+`openai` import in that process. No key → no-op (L18). init/span error → one stderr line,
+pipeline continues.
+
+B) `dodo_source.py` — the base fix (auth header, base URL, `/payments` endpoint,
+`DodoAPIError` clean exit) is DONE (W16, PR #16 — real root cause was a Cloudflare
+User-Agent block, not auth/endpoint). Remaining scope: live 401/403 after the corrected call →
+support `--source dodo-cache` and print `"live pull failed <code>; using labeled cache"`.
+Never invent payment rows.
+
+C) Close desk — TWO entry modes, same intents:
+- One-shot: `ledger-sense-desk "pull the bank and show discrepancies"` /
+  `python -m ledger_sense.operator analyze --dir data/demo/pass1`
+- Interactive (REQUIRED — this is the camera): `python -m ledger_sense.operator chat --dir
+  data/demo/pass1` (also `ledger-sense-desk --chat --dir ...`). Prints `desk>`, loops until
+  quit/exit. Working directory `--dir` (default `data/demo/pass1`); pass-2 dir default
+  `data/demo/pass2`.
+
+Intents at `desk>` (regex first; OpenAI may only paraphrase if `OPENAI_API_KEY` set; must work
+with the key OFF):
+- `pull`/`get data`/`fetch dodo`/`pull the bank` → dodo live, else dodo-cache, else synthetic
+  `--overlay` n≤400 → print source used + row counts
+- `analyze`/`find discrepancies`/`what's broken`/`show exceptions` → matching + routing (+
+  guardrail if cheap) on `--dir` → print bank lines, exception total, top classes, one example
+  `exception_id`, "discrepancies ready"
+- `resolve <exception_id or 'that one'> ...` → still needs resolution-type; predicate flags OR
+  a quoted rationale (may become a predicate via existing `llm_rationale` if key set, else
+  require the flags and say so) → print the exact v1 resolve contract (predicate, support,
+  status=candidate)
+- `promote RULE-... yes-always` → only this confirm string writes `rules.json` → print
+  `RULE <- RES`
+- `next close`/`run pass 2`/`did it learn` → generate/match pass2 if missing (n≤400, overlay),
+  apply-rules, route off vs on, print class before/after + rule_hits + traces
+- `status`/`where are we` → dirs, `rules.json` present?, exception count if files exist
+- `logs`/`trace` → print local `demo_trace.json` summary; neatlogs trace id if any
+- `quit`
+
+Also write `demo_trace.json` every turn (agent, command, files, duration).
+
+**Must not:** React/HTML/dashboard/CrewAI/LangGraph; change matcher weights or guardrail
+policy; promote without `yes-always`; claim Dodo live when using cache; import
+matching/routing internals (subprocess or published CLIs only).
+
+**Acceptance:**
+1. Keyless `matching --help`: no `neatlogs.Client` `AttributeError`
+2. Tracing tests mock `init`/`span`/`flush` — `Client` is gone
+3. Dodo mock 200 → `bank.csv`+`ledger.csv`; mock 403 → one line + cache path
+4. `operator chat` is scriptable:
+   `printf 'analyze\nquit\n' | python -m ledger_sense.operator chat --dir tests/fixtures/mini_pass1`
+   — stdout contains `desk>` and "discrepancies ready" and an `EXC-` id
+5. Tiny fee fixture through chat (or one-shot next-close): class drops or hit count == class
+   size
+6. `pytest -q -m "not slow"` green
+
+**Laws:** L1, L3, L14, L18, L19.
+**Stop.**
