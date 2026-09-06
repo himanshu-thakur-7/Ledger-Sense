@@ -629,7 +629,13 @@ guardrail/learning/metrics/data logic; any BOARD.md/README changes (W14 owns doc
 ---
 
 ### CARD W9 — OpenAI matching adjudicator
-**Status:** spawned
+**Status:** merged (PR #13, `f1fc691`, squash-merged by orchestrator per standing human
+authorization). Verified before merge: judges only the already-computed top candidate (no new
+candidate logic, L21), retries/timeout/cost-cap/cache all via W8's llm_client.py (never
+reimplemented), falls back to StubAdjudicator on any failure. CLI default (`stub`) stays
+byte-for-byte unchanged regardless of ambient `OPENAI_API_KEY` -- only explicit `--adjudicator
+auto` opts in. 14 dedicated tests incl. a full CSV-diff regression vs v1 and a cost-cap-mid-batch
+fallback test. Full suite 344 passed at merge.
 **Depends:** W8 merged
 **Branch:** `w9-openai-adjudicator`
 **Reads:** `LEDGER-SENSE-v2-PRD.md`, `matching/adjudication.py` (Protocol, read only),
@@ -721,7 +727,11 @@ beyond what `config.py` already exposes.
 ---
 
 ### CARD W11 — Dodo Payments sandbox source
-**Status:** spawned
+**Status:** merged (PR #11, `c1cad8d`, squash-merged by orchestrator per standing human
+authorization). Verified before merge: pull-then-synthesize followed exactly (locked decision
+1), output proven matching-engine-compatible via a real integration test (not just schema
+assertion), amounts Decimal/cents throughout (L3), missing-key path exits clean and nonzero.
+Zero float, zero live network calls in tests. Full suite 362 passed at merge.
 **Depends:** W8 merged (MAY run in parallel with W9/W10)
 **Branch:** `w11-dodo-source`
 **Reads:** `LEDGER-SENSE-v2-PRD.md`, `config.py`, `data/models.py` (`BankTransaction` shape,
@@ -768,7 +778,11 @@ calls; any payment creation/processing — read-only listing of existing sandbox
 ---
 
 ### CARD W12 — OpenAI resolution-learning rationale assist
-**Status:** spawned
+**Status:** merged (PR #10, `7101fcf`, squash-merged by orchestrator per standing human
+authorization). Verified before merge: suggestions restricted to predicate.py's existing
+vocabulary only (L11), manual_one_off/no_pattern refused before any LLM call (L13),
+`promote --confirm yes-always` completely untouched and still the only path to `rules.json`
+(a suggestion only ever lands in `rule_candidates.json`). Full suite 345 passed at merge.
 **Depends:** W8 merged (`llm_client.py`'s interface is fixed by W8, not W9 — no need to wait
 for W9; runs in parallel with W9/W11/W13, mutually disjoint files)
 **Branch:** `w12-openai-rationale`
@@ -806,7 +820,14 @@ auto-promote anything.
 ---
 
 ### CARD W13 — OpenAI routing fallback classifier
-**Status:** spawned
+**Status:** merged (PR #12, `558cf41`, squash-merged by orchestrator per standing human
+authorization). Verified before merge -- this is the card most likely to erode L21, checked
+carefully: `apply_llm_fallback` re-checks the rule-7 marker itself (defense in depth beyond
+`engine.py`'s own guard); a 5-row fixture with the fallback mocked-on shows exactly one LLM
+call, on the rule-7 row, rules 1-4 byte-identical to `classify_bank`. Guardrail's independence
+verified both structurally (doesn't even take `exceptions.csv` as input) and empirically
+(release/audit/held CSVs byte-identical whether or not a row was LLM-relabeled, while that row
+still gets a real, meaningful `dual_control` hold). 16 dedicated tests + full suite 346 passed.
 **Depends:** W8 merged (`llm_client.py`'s interface is fixed by W8, not W9 — no need to wait
 for W9; runs in parallel with W9/W11/W12, mutually disjoint files)
 **Branch:** `w13-openai-routing-fallback`
