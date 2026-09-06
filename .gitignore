@@ -26,6 +26,10 @@ htmlcov/
 # is never ignored, only its CSV output.
 data/pass*/*.csv
 
+# Real Dodo sandbox pulls (LIVE-1) — generated wherever a human points
+# --out-dir; real (if test-mode) transaction data is never committed.
+data/live/
+
 # Real secrets (see W8, .env.example) — .env.example is the checked-in
 # template; .env itself must never be committed.
 .env
