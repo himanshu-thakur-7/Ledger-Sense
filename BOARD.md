@@ -574,7 +574,14 @@ decision authority beyond the bounded seams below.
 ---
 
 ### CARD W8 — Config/secrets foundation
-**Status:** ready to spawn
+**Status:** merged (PR #9, `f8dcbd8`, squash-merged by orchestrator per standing human
+authorization). Verified: zero OpenAI/Dodo/Neatlogs SDK imports anywhere in the package;
+`.env.example` placeholders only, no real secrets (GitGuardian clean); base install stays
+dependency-free in a clean venv. **Orchestrator follow-up:** W8's own PR flagged that `.env`
+wasn't in `.gitignore` — fixed directly (one-line, non-code hygiene) before any real secret
+could land in a working tree, since real API keys are now configured on the project. 330
+passed, 2 skipped at merge (v1's 277 + 53 new, all against mocked transports).
+**Depends:** none (v2 foundation; builds on merged v1)
 **Depends:** none (v2 foundation; builds on merged v1)
 **Branch:** `w8-config`
 **Reads:** `LEDGER-SENSE-v2-PRD.md`, `src/ledger_sense/matching/adjudication.py` (Protocol
@@ -620,7 +627,7 @@ guardrail/learning/metrics/data logic; any BOARD.md/README changes (W14 owns doc
 ---
 
 ### CARD W9 — OpenAI matching adjudicator
-**Status:** todo
+**Status:** spawned
 **Depends:** W8 merged
 **Branch:** `w9-openai-adjudicator`
 **Reads:** `LEDGER-SENSE-v2-PRD.md`, `matching/adjudication.py` (Protocol, read only),
@@ -665,7 +672,7 @@ routing/guardrail/learning/metrics; widen adjudication beyond the existing gray-
 ---
 
 ### CARD W10 — Neatlogs tracing
-**Status:** todo
+**Status:** spawned
 **Depends:** W8 merged (MAY run in parallel with W9/W11/W12/W13)
 **Branch:** `w10-tracing`
 **Reads:** `LEDGER-SENSE-v2-PRD.md`, `config.py` (`tracing_enabled()`), each agent's existing
@@ -703,7 +710,7 @@ beyond what `config.py` already exposes.
 ---
 
 ### CARD W11 — Dodo Payments sandbox source
-**Status:** todo
+**Status:** spawned
 **Depends:** W8 merged (MAY run in parallel with W9/W10)
 **Branch:** `w11-dodo-source`
 **Reads:** `LEDGER-SENSE-v2-PRD.md`, `config.py`, `data/models.py` (`BankTransaction` shape,
