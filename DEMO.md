@@ -193,3 +193,63 @@ reported separately rather than folded into one bigger number.
 
 **That's the whole demo.** One human decision, made once, in structured fields — resolved before
 it ever became someone else's SLA problem the second time it recurred.
+
+---
+
+## 6. Optional — v2 live-mode scene (requires real API keys; skip if you don't have them)
+
+Everything above is v1: zero external calls, zero API spend, fully reproducible from a clean
+clone. This scene is **optional** — it only runs if `OPENAI_API_KEY` (and, for the tracing/Dodo
+lines, `NEATLOGS_API_KEY`/`DODO_API_KEY`) are actually configured; omit any of them and the exact
+same commands below fall back to v1's stub/manual/deterministic/no-tracing behavior automatically
+(law L18), never crash.
+
+```bash
+pip install -e ".[llm,dodo,tracing]"
+```
+
+```bash
+python -m ledger_sense.matching --ledger data/pass1/ledger.csv --bank data/pass1/bank.csv \
+  --out-dir data/pass1 --adjudicator auto
+```
+```
+bank lines=327; ledger entries=294; matched=276
+cheap-tier match rate: 84.10% (275/327)
+llm_is_stub=False; llm_calls=36; adjudicator=gpt-4o-mini
+```
+
+**Real OpenAI, real dollars, real bounded fallback** — 36 gray-zone candidates got a real answer
+from `gpt-4o-mini`; the rest of the batch (of 51 escalated) fell back to the same deterministic
+stub rather than blocking, exactly per the seam's contract. `ledger_sense-scoreboard`'s new v2
+flags turn that into a CFO-relevant number, real cost included:
+
+```bash
+ledger_sense-scoreboard scoreboard --pass1-dir data/pass1 --pass2-dir data/pass2 \
+  --rules data/rules.json --out data/scoreboard.json \
+  --llm-cost-usd 0.002971 \
+  --adjudicator-stub-dir data/pass1-stub --adjudicator-llm-dir data/pass1-live \
+  --stub-duration-seconds 9.876 --live-duration-seconds 83.620 \
+  --entrypoints-run 4 --spans-emitted 0
+```
+```
+-- v2 (live-mode) --
+  OpenAI cost this run: $0.002971
+  Real adjudicator STR lift: 288 -> 271 (-17 points); cost/point: n/a (no STR gain measured)
+  Latency delta (stub+synthetic vs. live): 9.876s -> 83.620s (delta 73.744s)
+  Neatlogs trace coverage: 0/4 (0.00%)
+```
+
+**Said plainly, not oversold:** in the actual smoke-test batch behind these numbers (`seed=777,
+n-cases=300` — a different, smaller batch than sections 1–5 above, chosen to keep real OpenAI
+spend and wall-clock small), the real adjudicator resolved *fewer* net straight-through rows than
+the plain stub heuristic, so `cost/point` is honestly `n/a` rather than a fabricated figure —
+ground-truth precision stayed 100.00% on both sides, only raw match count differed. Neatlogs spans
+never actually reached the real service this run (the installed `neatlogs` package doesn't expose
+the `Client` class `tracing.py` calls — a real, disclosed integration gap, not a silent skip); a
+real Dodo Payments sandbox pull (`python -m ledger_sense.data --source dodo`) returned `HTTP 403
+Forbidden` rather than data. Full derivation of every number above — tokens, retries, the exact
+failure text — is in the W14 PR description.
+
+**This is the honest version of the live-mode demo:** real API keys, a real dollar spent, a real
+partial integration failure disclosed rather than hidden, and the guardrail/matcher's deterministic
+core completely unmoved by any of it.
