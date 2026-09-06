@@ -422,7 +422,20 @@ expected — that data is gitignored).
 ---
 
 ### CARD W6 — Agent 5 Metrics Orchestrator
-**Status:** spawned
+**Status:** merged (PR #7, `18cbe83`, squash-merged by orchestrator per explicit human
+authorization). Verified before merge: zero `ledger_sense.*` imports anywhere in `metrics/`
+(stricter than the L2 carve-out required), zero `float()`, `pyproject.toml`'s only change is
+one console-script line. Real seed=42 two-pass run: pass-1 STR 87.51% (matches W3's own
+independently-recorded seed=42 number — confirms deterministic reproduction across agents), 
+pass-2 87.70%/87.69% (naive/real), 75 rule-driven auto-resolves at 100% trace coverage, 1
+learned rule. 924 exception classes eliminated overall, honestly split: ~85 attributable to the
+promoted rule's exact shape, the rest ordinary two-draw variance — not inflated into one
+headline number. Byte-identical `scoreboard.json` reruns confirmed at 25k scale. 277 tests
+passed at merge.
+**Note for W7:** the actual scoreboard binary is `ledger_sense-scoreboard scoreboard
+--pass1-dir ... --pass2-dir ...` (a second `[project.scripts]` entry under the literal
+`ledger_sense` key would collide with W5's `resolve`/`promote`), not bare `ledger_sense
+scoreboard` — use the real invocation in the demo script.
 **Depends:** W5 merged
 **Branch:** `w6-metrics`
 **Reads:** pass1 + pass2 outputs of agents 1–4; `match_links.csv` ALLOWED here only
@@ -450,7 +463,7 @@ expected — that data is gitignored).
 ---
 
 ### CARD W7 — Ship surface
-**Status:** todo
+**Status:** spawned
 **Depends:** W6 merged
 **Branch:** `w7-ship`
 **Writes:** `README.md`, `DEMO.md`
