@@ -16,13 +16,16 @@ import sys
 from collections import Counter
 from decimal import DecimalException
 from pathlib import Path
+from typing import Optional
 
+from ledger_sense.config import load_config
 from ledger_sense.data.io_csv import write_csv
 from ledger_sense.guardrail import load_policy
 
 from . import io as learning_io
+from . import llm_rationale
 from .apply import RULE_HIT_COLUMNS, apply_rules
-from .predicate import build_predicate, evaluate_predicate
+from .predicate import build_predicate, evaluate_predicate, render_english
 from .resolution import NON_RULE_TYPES, ResolutionError, make_resolution
 from .rules import RuleError, candidate_rule, load_candidates, load_rules, promote as promote_rule, save_candidates
 
@@ -49,7 +52,43 @@ def _support_count(predicate: dict, exceptions_path, outcomes_path) -> int:
     return count
 
 
+def _openai_suggestion(args) -> Optional[dict]:
+    """W12: OpenAI resolution-learning rationale assist. Offered only when
+    the human gave none of the predicate flags themselves and the
+    resolution type can ever carry a predicate at all (law L13 --
+    manual_one_off/no_pattern are excluded before any config is even read,
+    let alone an LLM call made). Absent ``OPENAI_API_KEY``
+    (``config.openai_enabled()`` False) this function does nothing and
+    returns ``None`` -- ``resolve`` then behaves byte-identical to v1
+    (law L18)."""
+    manual_evidence_given = any(
+        value is not None
+        for value in (
+            args.counterparty_key, args.currency, args.amount_delta_min,
+            args.amount_delta_max, args.reference_transform, args.amount_class,
+        )
+    )
+    if manual_evidence_given or args.resolution_type in NON_RULE_TYPES:
+        return None
+
+    cfg = load_config()
+    if not cfg.openai_enabled():
+        return None
+
+    client = llm_rationale.build_client(cfg)
+    suggestion = llm_rationale.suggest_predicate(
+        resolution_type=args.resolution_type, rationale=args.rationale, client=client,
+        cache_key=args.exception_id,
+    )
+    if suggestion:
+        print(f"SUGGESTION ({cfg.openai_model}): candidate predicate: {render_english(suggestion)}")
+        print("SUGGESTION: edit with --counterparty-key/--currency/... to override; "
+              "promote still requires explicit --confirm yes-always")
+    return suggestion
+
+
 def cmd_resolve(args) -> int:
+    suggestion = _openai_suggestion(args)
     try:
         predicate = build_predicate(
             counterparty_key=args.counterparty_key,
@@ -59,6 +98,8 @@ def cmd_resolve(args) -> int:
             reference_transform=args.reference_transform,
             amount_class=args.amount_class,
         )
+        if not predicate and suggestion:
+            predicate = suggestion
         resolution = make_resolution(
             exception_id=args.exception_id,
             resolution_type=args.resolution_type,
