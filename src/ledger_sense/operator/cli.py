@@ -19,13 +19,19 @@ from typing import Optional
 
 from ..data.dodo_source import DEFAULT_CACHE_PATH
 from ..tracing import traced_run
-from . import actions, trace
+from . import actions, trace, ui
 from .desk import Desk
 from .paths import DEFAULT_PASS1_DIR, DEFAULT_PASS2_DIR
 
+# Mirrors desk.py's own _SPINNER_LABEL -- the explicit `python -m
+# ledger_sense.operator <subcommand>` door hits the same slow subprocess
+# calls and deserves the same spinner (subcommand names use hyphens here).
+_SPINNER_LABEL = {"pull": "pulling", "analyze": "analyzing", "next-close": "closing next period"}
+
 
 def _print_result(result: actions.ActionResult, out=sys.stdout) -> int:
-    for line in result.lines:
+    enabled = ui.styling_enabled(out)
+    for line in ui.format_lines(result.lines, enabled=enabled):
         print(line, file=out)
     return 0 if result.ok else 1
 
@@ -147,7 +153,12 @@ def main(argv: Optional[list] = None) -> int:
     # every turn") -- not only chat/one-shot free-text ones, which go
     # through Desk.run_intent instead and already do this themselves.
     start = time.monotonic()
-    result = args.run(args)
+    label = _SPINNER_LABEL.get(args.command)
+    if label:
+        with ui.spinner(label, enabled=ui.styling_enabled(sys.stdout), stream=sys.stdout):
+            result = args.run(args)
+    else:
+        result = args.run(args)
     duration = time.monotonic() - start
     trace.append_entry(
         _pass1(args).trace_path, command=args.command, files=result.data.get("files", []),
