@@ -874,7 +874,36 @@ add a 6th category.
 ---
 
 ### CARD W14 — v2 ship: metrics v2 + docs + live smoke test
-**Status:** spawned
+**Status:** merged (PR #15, `cf7ff04`, squash-merged by orchestrator per standing human
+authorization). **v2 BUILD COMPLETE — all 7 cards (W8–W14) on main.** Verified before merge:
+scoreboard v2 additive-only (byte-identical v1 output when its four new flags are omitted),
+`cost_per_str_point_usd` correctly `null` on a non-positive gain rather than fabricated, zero
+float, zero secret fragments anywhere in the diff (scanned directly against the actual
+configured key values, not just trusted from the PR body). Post-merge sanity check green: 449
+passed, 2 skipped.
+
+**Real live-mode smoke test results — reported honestly, not oversold:**
+- Real OpenAI adjudicator: 36 calls, 15,546 tokens, **$0.002971** measured cost on a
+  seed=777/n=300 batch (well under the $1/run cap). Ground-truth match precision 100% on both
+  stub and real-adjudicator runs; the real adjudicator's raw STR was *lower* than the stub's on
+  this small batch (271 vs 288) — a genuine, disclosed finding, not a bug, but worth noting
+  before claiming the LLM tier as a straightforward improvement at small scale.
+- **Neatlogs tracing does not actually work against the real SDK (found by this run, not by
+  W10's mocked tests):** the installed `neatlogs` package (v1.1.8) has no `Client` class;
+  `tracing.py`'s `_build_client()` raises `AttributeError` on every call. L18's fallback caught
+  it correctly — every entrypoint still ran clean, exit 0 — but **0/4 real spans were ever
+  sent**. Follow-up card needed: fix `tracing.py` against the real `neatlogs` API
+  (`init`/`get_tracker`/`LLMTracker`/`add_tags`), then re-run this same smoke test.
+- **Dodo Payments sandbox returns HTTP 403, not an empty-but-authorized 200 (found by this run):**
+  `dodo_source.py`'s request shape likely doesn't match Dodo's actual sandbox API. Also:
+  `DodoAPIError` isn't caught by `cli.py`'s top-level handler the way a missing key is, so this
+  currently exits with a full traceback instead of a clean message. Follow-up card needed: fix
+  the Dodo request shape and the error-handling gap, then re-run this smoke test.
+- Both gaps are real, disclosed, out-of-scope-for-this-card findings, not hidden or silently
+  patched over. **v2 is honestly "seams built, gracefully degrade, OpenAI path verified live;
+  Neatlogs and Dodo need one more fix-and-verify pass each before they're truly live"** — say
+  this plainly if asked whether v2 is "done," don't round it up to "all three integrations work."
+**Depends:** W9 AND W10 AND W11 AND W12 AND W13 merged
 **Depends:** W9 AND W10 AND W11 AND W12 AND W13 merged
 **Branch:** `w14-v2-ship`
 **Reads:** everything above, v1's `README.md`/`DEMO.md`/`BOARD.md`
