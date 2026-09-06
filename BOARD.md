@@ -506,3 +506,359 @@ worker's own real run rather than copied from a prior PR body. Post-merge sanity
 without the human explicitly saying go).
 
 **Stop.**
+
+---
+
+# Ledger Sense v2 — real integrations
+
+Source of truth: `LEDGER-SENSE-v2-PRD.md` (repo root). v1 (W0–W7 above) is complete and
+unmodified by v2 — v2 only fills the three seams v1 deliberately stubbed (LLM adjudication,
+Dodo Payments, Neatlogs), disclosed in v1's own README/BOARD.md. Same rule as v1: if a v2 card
+and the v2 PRD ever disagree, stop and escalate — don't invent a third version. v1's PDF
+remains the source of truth for anything v1-shaped (schemas, thresholds, filenames already
+shipped); v2 does not relitigate those.
+
+## v2 dependency graph
+
+```
+W8 config/secrets foundation (no dependencies)
+  ├─ W9  OpenAI matching adjudicator         ⎤
+  ├─ W10 Neatlogs tracing                    ⎥ parallel, all depend only on W8
+  ├─ W11 Dodo Payments sandbox source        ⎦
+  ├─ W12 OpenAI rationale assist               (ideally after W9 — shares llm_client.py)
+  └─ W13 OpenAI routing fallback               (ideally after W9 — shares llm_client.py)
+       └─ W14 metrics v2 + docs + live smoke test (needs W9, W10, W11, W12, W13 all merged)
+```
+
+W9–W13 do not spawn until the locked decisions below are settled (they are — see next
+section). W14 does not spawn until W9, W10, W11, W12, AND W13 are all merged.
+
+## Locked decisions (human-approved, round 1)
+
+1. **Dodo/ledger-pairing (W11):** pull-then-synthesize — pull existing Dodo sandbox
+   transactions first, then synthesize matching `ledger.csv` rows around them, mirroring the
+   generator's defect-injection logic. Fully automated, no manual dashboard clicking per demo.
+2. **OpenAI model + cost cap (W9/W12/W13):** cheap tier (`gpt-4o-mini`-class), **$1.00/run**
+   cap, both overridable via `LEDGER_SENSE_OPENAI_MODEL` / `LEDGER_SENSE_LLM_COST_CAP_USD`.
+3. **Shared LLM client:** one thin wrapper module (`llm_client.py`, built in W8) is the single
+   point of retry/timeout/cost-cap/redaction enforcement for W9, W12, and W13. No independent
+   reimplementations.
+4. **API keys:** the human sets `OPENAI_API_KEY` / `DODO_API_KEY` / `DODO_ENVIRONMENT=sandbox`
+   / `NEATLOGS_API_KEY` directly via `ao project set-config ledger-sense --env "KEY=..."`.
+   Never pasted through chat, never committed, never logged. Until they're set, W9–W13 build
+   and test fully mocked/offline; only W14's live smoke test needs the real values, and only
+   when the human is ready to run it.
+
+## v2 standing laws (extend L1–L17 above; cite the relevant ones in every v2 spawn)
+
+- **L18** Absence of any live-mode API key must degrade gracefully to v1 stub/synthetic/
+  no-tracing behavior — never crash, never change v1's zero-key output.
+- **L19** No secrets hardcoded or logged anywhere. Neatlogs spans and any debug output must
+  redact credential-shaped values before emission.
+- **L20** Every new external-API code path is unit-tested against a mocked client. The full
+  pytest suite stays 100% offline/deterministic — zero live network calls, zero API spend.
+- **L21** LLM output at every seam (adjudication, rationale-assist, routing fallback) is
+  bounded to its existing seam only — never given authority beyond what v1's deterministic
+  layer already couldn't resolve. The guardrail always independently re-derives and is never
+  bypassed or trusted-through.
+- **L22** Per-run cost/call caps, timeouts, and bounded retries are mandatory on every external
+  API client, enforced through the shared `llm_client.py`.
+
+## v2 explicitly not doing (mirrors v1's §14 discipline)
+
+No database/persistent-store migration; no API/service wrapper — stays CLI/batch/files; no
+UI/dashboard; no production deployment/infra; no multi-tenant support; no live (non-sandbox)
+Dodo payment processing; no OpenAI fine-tuning; no widening of the matcher's or guardrail's
+decision authority beyond the bounded seams below.
+
+---
+
+### CARD W8 — Config/secrets foundation
+**Status:** ready to spawn
+**Depends:** none (v2 foundation; builds on merged v1)
+**Branch:** `w8-config`
+**Reads:** `LEDGER-SENSE-v2-PRD.md`, `src/ledger_sense/matching/adjudication.py` (Protocol
+shape, read only — do not modify)
+**Writes / may touch:**
+- `src/ledger_sense/config.py` (new)
+- `src/ledger_sense/llm_client.py` (new — the shared wrapper, locked decision 3)
+- `.env.example`
+- `tests/test_config.py`, `tests/test_llm_client.py`
+- `pyproject.toml` (add `[project.optional-dependencies]` extras only: `llm`, `dodo`,
+  `tracing` — base install stays zero-dependency, v1's own must-hold property)
+
+**Must implement:**
+- `config.py` reads from environment/`.env`: `OPENAI_API_KEY`, `LEDGER_SENSE_OPENAI_MODEL`
+  (default `gpt-4o-mini`), `LEDGER_SENSE_LLM_COST_CAP_USD` (default `1.00`), `DODO_API_KEY`,
+  `DODO_ENVIRONMENT` (default `sandbox`), `LEDGER_SENSE_DATA_SOURCE` (default `synthetic`),
+  `NEATLOGS_API_KEY`. Exposes central functions (`openai_enabled()`, `dodo_enabled()`,
+  `tracing_enabled()`) — every later module calls these, never touches `os.environ` directly.
+- `.env.example` lists every var with a placeholder + comment, zero real secrets (grep-tested).
+- `llm_client.py`: a thin wrapper class around an injectable "transport" callable — bounded
+  retries with backoff, request timeout, per-run cumulative cost/call cap enforcement
+  (short-circuits before the cap is exceeded), a redaction helper for logging, and response
+  caching keyed by a caller-supplied key. Does NOT call OpenAI itself — W9 plugs the real SDK
+  call in behind it; tests inject a mock transport.
+- `pyproject.toml` extras: `llm = ["openai>=1.0"]`, `dodo = [...]`, `tracing = ["neatlogs"]` —
+  the base package install must remain exactly as dependency-free as v1 shipped it.
+- Graceful degradation: if `OPENAI_API_KEY` is absent, `config.openai_enabled()` returns
+  `False` and nothing downstream may ever attempt a call (same pattern for Dodo/Neatlogs).
+
+**Does not:** any actual OpenAI/Dodo/Neatlogs SDK calls; any change to matching/routing/
+guardrail/learning/metrics/data logic; any BOARD.md/README changes (W14 owns docs).
+
+**Acceptance:**
+1. `pip install -e .` (base, no extras) still succeeds with zero new *required* dependencies
+2. `config.py`'s enabled/disabled logic has full unit-test coverage for all three integrations
+3. `llm_client.py`'s retry/timeout/cost-cap logic tested against a mocked transport only
+4. `.env.example` exists, documents every var, contains no real secret values
+5. Full v1 test suite (277 tests) still passes unmodified
+
+**Laws:** L18, L19, L20, L22
+**Stop. Do not start W9.**
+
+---
+
+### CARD W9 — OpenAI matching adjudicator
+**Status:** todo
+**Depends:** W8 merged
+**Branch:** `w9-openai-adjudicator`
+**Reads:** `LEDGER-SENSE-v2-PRD.md`, `matching/adjudication.py` (Protocol, read only),
+`config.py` + `llm_client.py` (from W8, import)
+**Writes / may touch:**
+- `src/ledger_sense/matching/llm_adjudicator.py` (new)
+- `tests/test_llm_adjudicator.py`
+- **The one existing-file exception:** the single call site in `matching/__main__.py` (and/or
+  `engine.py`) that currently hardcodes `StubAdjudicator()` — swap for a config-driven factory
+  call. Nothing else in `matching/` changes; this is the whole point of the seam v1 built.
+
+**Must implement:**
+- `OpenAIAdjudicator` implementing the `Adjudicator` Protocol exactly (`llm_is_stub=False`,
+  `llm_calls` counter, `model` from config), operating only on the same `Question`/`Verdict`
+  dataclasses `adjudication.py` already defines — no new candidate-generation logic.
+- Structured JSON response: `{decision: match|no_match|needs_human, confidence, rationale}`.
+  `temperature=0`, timeout, bounded retries via `llm_client.py`, the locked $1/run cost cap,
+  response cache keyed by `(ledger_id, bank_txn_id)`.
+- On API failure or cap breach: falls back to `StubAdjudicator`'s decision for that batch —
+  never crashes, never blocks.
+- A factory function (e.g. `get_adjudicator()`) that returns `OpenAIAdjudicator` if
+  `config.openai_enabled()` else `StubAdjudicator` — this is the one line `__main__.py`/
+  `engine.py` calls instead of hardcoding the stub.
+
+**Does not:** touch matching's feature scoring, blocking, thresholds, or capacity logic; touch
+routing/guardrail/learning/metrics; widen adjudication beyond the existing gray-zone seam.
+
+**Acceptance:**
+1. Unit tests against a mocked OpenAI client — zero live network calls
+2. Regression: with `OPENAI_API_KEY` unset, output is byte-identical to v1's `StubAdjudicator`
+3. With a mocked "always match" response, a gray-zone candidate v1's stub would have escalated
+   is now auto-matched, and `llm_calls`/`llm_is_stub=False` flow into `match_outcomes.csv`
+   (already-existing columns — verify, don't add new ones)
+4. Cost-cap test: mocked transport simulates hitting the cap mid-batch; remaining candidates
+   fall back to stub behavior rather than crashing
+5. Cache test: the same `(ledger_id, bank_txn_id)` pair adjudicated twice in one run calls the
+   mocked transport exactly once
+
+**Laws:** L1, L9, L18, L20, L21, L22
+**Stop.**
+
+---
+
+### CARD W10 — Neatlogs tracing
+**Status:** todo
+**Depends:** W8 merged (MAY run in parallel with W9/W11/W12/W13)
+**Branch:** `w10-tracing`
+**Reads:** `LEDGER-SENSE-v2-PRD.md`, `config.py` (`tracing_enabled()`), each agent's existing
+`__main__.py`/`cli.py` (read only, to find the minimal wrap point)
+**Writes / may touch:**
+- `src/ledger_sense/tracing.py` (new)
+- One minimal wrapping edit in each of: `data/__main__.py`, `matching/__main__.py`,
+  `routing/__main__.py`, `guardrail/__main__.py`, `learning/cli.py`, `metrics/cli.py` — a
+  single decorator/context-manager call per entrypoint, nothing else in those files changes
+- `tests/test_tracing.py`
+
+**Must implement:**
+- `traced_run(agent_name, **metadata)`: a context manager/decorator that starts a Neatlogs
+  span if `tracing_enabled()`, else is a no-op — never raises, never blocks the pipeline if
+  Neatlogs is unreachable.
+- Span captures: agent name, duration, input/output row counts, guardrail allow/block/hold
+  breakdown (guardrail entrypoint only), `llm_calls`/tokens/estimated cost (matching/learning/
+  routing entrypoints only, when present).
+- Redaction: any API-key/credential-shaped string is stripped before attaching to a span.
+- `NEATLOGS_API_KEY` absent → zero Neatlogs SDK calls, zero overhead beyond a no-op.
+
+**Does not:** touch each agent's actual logic beyond the one wrap point; add new CLI flags
+beyond what `config.py` already exposes.
+
+**Acceptance:**
+1. With `NEATLOGS_API_KEY` unset, all 5 entrypoints run byte-identical to v1 output
+2. Unit tests against a mocked Neatlogs client — zero live network calls
+3. Redaction test: a fake API-key-shaped string in span metadata never reaches the (mocked)
+   client's payload
+4. A mocked client raising an error never crashes the CLI or changes its exit code/output
+
+**Laws:** L18, L19, L20
+**Stop.**
+
+---
+
+### CARD W11 — Dodo Payments sandbox source
+**Status:** todo
+**Depends:** W8 merged (MAY run in parallel with W9/W10)
+**Branch:** `w11-dodo-source`
+**Reads:** `LEDGER-SENSE-v2-PRD.md`, `config.py`, `data/models.py` (`BankTransaction` shape,
+read only), `data/generator.py` (defect-injection logic, read only — small documented
+reimplementation is fine, same as other agents have done for shared vocabulary)
+**Writes / may touch:**
+- `src/ledger_sense/data/dodo_source.py` (new)
+- `src/ledger_sense/data/dodo_pairing.py` (new — locked pull-then-synthesize strategy)
+- `tests/test_dodo_source.py`, `tests/test_dodo_pairing.py`
+- A CLI flag/entry so the generator's existing entrypoint can select `--source dodo` instead
+  of pure synthesis
+
+**Must implement:**
+- **Pull-then-synthesize (locked decision 1):** call Dodo's sandbox API to list existing
+  transactions (paginated), normalize each into the exact `BankTransaction` shape (amount as
+  Decimal/cents — never float, law L3 — currency, reference/metadata, counterparty, timestamp,
+  direction), dedup by Dodo transaction ID (idempotent — re-running never duplicates).
+- For each pulled transaction, synthesize a paired `LedgerEntry` row using the same defect-mix
+  proportions/logic as the synthetic generator (reuse/mirror, documented).
+- `LEDGER_SENSE_DATA_SOURCE=synthetic|dodo` (default `synthetic` — v1's deterministic/CI
+  behavior untouched unless explicitly opted in). Output paths/shapes identical to the
+  synthetic path — matching/routing/guardrail/learning/metrics need zero changes to consume it
+  (prove this with an integration test, not just a schema assertion).
+- Document the exact pairing decision in the module docstring + a README note (W14) — not a
+  silent guess.
+- `DODO_API_KEY` absent + `--source dodo` requested → clean nonzero exit with a clear message,
+  never a stack trace; the synthetic default path is completely unaffected.
+
+**Does not:** touch matching/routing/guardrail/learning/metrics; any live (non-sandbox) Dodo
+calls; any payment creation/processing — read-only listing of existing sandbox transactions.
+
+**Acceptance:**
+1. Unit tests against a mocked Dodo client — zero live network calls, zero sandbox API spend
+2. Dodo-sourced output rows pass the exact same schema validation as `generator.py`'s output
+3. Idempotency: pulling the same mocked transaction list twice produces zero duplicate rows
+4. Integration test: `matching.engine` runs unmodified against Dodo-sourced fixture files and
+   produces a valid `match_outcomes.csv`
+5. Missing-key test: `DODO_API_KEY` unset + `--source dodo` exits nonzero with a clear
+   message; synthetic path unaffected
+
+**Laws:** L3, L18, L19, L20
+**Stop.**
+
+---
+
+### CARD W12 — OpenAI resolution-learning rationale assist
+**Status:** todo
+**Depends:** W8 merged, ideally after W9 merged (shares `llm_client.py`)
+**Branch:** `w12-openai-rationale`
+**Reads:** `LEDGER-SENSE-v2-PRD.md`, `config.py` + `llm_client.py`, `learning/resolution.py`
+(schema, read only), `learning/predicate.py` (vocabulary, read only)
+**Writes / may touch:**
+- `src/ledger_sense/learning/llm_rationale.py` (new)
+- `tests/test_llm_rationale.py`
+- A small, documented edit to `learning/cli.py`'s `resolve` command: when
+  `config.openai_enabled()` and no explicit `--evidence` was given, offer this module's
+  suggestion, clearly labeled SUGGESTION — the human's own `promote --confirm yes-always` step
+  is not touched.
+
+**Must implement:**
+- Takes a `Resolution`'s `resolution_type` + free-text rationale, asks OpenAI (via
+  `llm_client.py`) to suggest a candidate predicate in `learning/predicate.py`'s *existing*
+  vocabulary — never a new one.
+- `manual_one_off`/`no_pattern` never receive a suggestion (unchanged v1 rule, law L13).
+- `OPENAI_API_KEY` absent → `ledger_sense resolve` behaves byte-identical to v1 (fully manual
+  entry only).
+
+**Does not:** touch the `promote`/`apply-rules` code path; touch matching/routing/guardrail;
+auto-promote anything.
+
+**Acceptance:**
+1. Unit tests against a mocked OpenAI client
+2. Regression: key unset → `ledger_sense resolve` output byte-identical to v1's
+3. Test proving `promote --confirm yes-always` remains the only path that writes `rules.json`,
+   and a suggested-but-unconfirmed predicate never appears there
+4. `manual_one_off`/`no_pattern` resolutions never receive or use a suggestion
+
+**Laws:** L11, L13, L14, L18, L20, L21, L22
+**Stop.**
+
+---
+
+### CARD W13 — OpenAI routing fallback classifier
+**Status:** todo
+**Depends:** W8 merged, ideally after W9 merged (shares `llm_client.py`)
+**Branch:** `w13-openai-routing-fallback`
+**Reads:** `LEDGER-SENSE-v2-PRD.md`, `config.py` + `llm_client.py`, `routing/classify.py`
+(existing classifier, read only)
+**Writes / may touch:**
+- `src/ledger_sense/routing/llm_classifier.py` (new)
+- `tests/test_llm_classifier.py`
+- A small, documented edit to wherever `classify_bank`'s result is consumed in
+  `routing/engine.py`: call the LLM fallback ONLY when `classify_bank` would have returned via
+  rule 7 (`unidentified_counterpart`, "no earlier condition matched") AND
+  `config.openai_enabled()`. Rules 1–6 are completely untouched.
+
+**Must implement:**
+- Classifies into the same fixed 5-category taxonomy with a confidence score — never a 6th
+  category.
+- Every LLM-classified row is tagged/auditable in `exceptions.csv` (check the actual existing
+  schema for the right field — don't invent a new column if an existing one fits).
+- The guardrail's independent re-check is completely unaffected — it never trusts the
+  classification source, only the row's own facts (law L21).
+- `OPENAI_API_KEY` absent → rule 7's fallback behaves byte-identical to v1.
+
+**Does not:** touch guardrail/**, matching/**, learning/**; touch rules 1–6 of `classify_bank`;
+add a 6th category.
+
+**Acceptance:**
+1. Unit tests against a mocked OpenAI client
+2. Regression: key unset → routing output byte-identical to v1
+3. Test proving rules 1–6 are never intercepted or altered — only rule-7 cases reach the LLM
+4. Test proving every LLM-classified row is tagged/auditable
+5. Test proving guardrail's verdict for an LLM-classified row comes from guardrail's own
+   unchanged independent logic, not passed through from the classifier
+
+**Laws:** L1, L2, L18, L20, L21, L22
+**Stop.**
+
+---
+
+### CARD W14 — v2 ship: metrics v2 + docs + live smoke test
+**Status:** todo
+**Depends:** W9 AND W10 AND W11 AND W12 AND W13 merged
+**Branch:** `w14-v2-ship`
+**Reads:** everything above, v1's `README.md`/`DEMO.md`/`BOARD.md`
+**Writes / may touch:**
+- `src/ledger_sense/metrics/**` (additive v2 fields only)
+- `tests/test_metrics.py` (additive)
+- `README.md`, `DEMO.md`, `BOARD.md` (v2 status section)
+
+**Must implement:**
+- Scoreboard v2 additive fields: total OpenAI cost this run; cost per STR point gained
+  specifically attributable to the real adjudicator (compare a real-adjudicator run vs. a stub
+  run on the same batch); latency delta (stub+synthetic vs. full live mode); Neatlogs
+  trace-coverage percentage.
+- README v2 section: how to enable each live-mode extra (`pip install
+  ledger-sense[llm,dodo,tracing]`, the four env vars), a live-mode walkthrough alongside the
+  unchanged v1 deterministic walkthrough.
+- DEMO.md v2: an optional live-mode demo scene, clearly marked optional/requires-real-keys,
+  alongside the unchanged v1 demo script.
+- One true end-to-end live-mode smoke test, run manually with real API keys if the human has
+  set them (locked decision 4) — document actual output (cost $, latency, trace count) in the
+  PR description as evidence, not an assertion. If keys aren't set at build time, this becomes
+  a clearly-flagged manual follow-up for the human, never silently skipped or asserted.
+- Full offline pytest suite stays 100% green with zero live calls.
+
+**Does not:** new architecture, new agents, DB/API-service migration, UI.
+
+**Acceptance:**
+1. Full offline suite green (v1's 277 + all new v2 tests)
+2. Live-mode smoke test run with real documented output, or clearly flagged as a pending
+   manual step if keys weren't available
+3. BOARD.md updated with v2 status for all cards W8–W14
+4. README/DEMO.md updated, no oversell (same discipline as v1's W7)
+
+**Laws:** all of L1–L22
+**Stop.**
