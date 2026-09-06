@@ -680,7 +680,7 @@ routing/guardrail/learning/metrics; widen adjudication beyond the existing gray-
 ---
 
 ### CARD W10 — Neatlogs tracing
-**Status:** todo — deliberately held, not spawned yet
+**Status:** spawned (now that W9/W11/W12/W13 are all merged, per the collision-avoidance sequencing below)
 **Depends:** W8 merged AND W9 AND W11 AND W12 AND W13 all merged (orchestrator correction from
 the original PRD's "parallel with W9/W11/W12/W13": W10 wraps every agent entrypoint — `data`,
 `matching`, `routing`, `guardrail` `__main__.py` files plus `learning/cli.py` and
