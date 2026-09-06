@@ -8,12 +8,29 @@ Reference command (spec §4, BOARD.md W1 card)::
 Add ``--overlay`` to enable the disclosed demo-overlay mode (BOARD.md locked Q3):
 plants 12-20 labeled ``fee_offset`` siblings only if no naturally-occurring exception
 class already clears the 8-sibling threshold.
+
+Add ``--source dodo`` (W11, LEDGER-SENSE-v2-PRD.md) to pull real Dodo Payments
+*sandbox* transactions instead of pure synthesis -- see ``dodo_source.py`` for
+the pull-then-synthesize pipeline this delegates to. Requires ``DODO_API_KEY``
+(``LEDGER_SENSE_DATA_SOURCE=dodo`` alone is not enough, mirroring
+``config.py``'s ``using_dodo_source()`` gate); when the key is absent this
+exits cleanly with a nonzero code and a one-line message (never a stack
+trace, law L18) and never touches the default synthetic path.
 """
 
 import argparse
 import os
 import sys
+from typing import Optional
 
+from ..config import Config, load_config
+from .dodo_source import (
+    DodoClient,
+    DodoNotConfiguredError,
+    DodoSandboxClient,
+    build_dodo_dataset,
+    ensure_dodo_configured,
+)
 from .generator import GeneratedDataset, GeneratorConfig, generate
 from .io_csv import write_csv
 from .models import BANK_COLUMNS, LEDGER_COLUMNS, MATCH_LINK_COLUMNS
@@ -42,6 +59,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="enable the disclosed fee_offset demo-overlay mode (BOARD.md locked Q3)",
     )
     parser.add_argument("--universe-size", type=int, default=800, dest="universe_size")
+    parser.add_argument(
+        "--source",
+        choices=["synthetic", "dodo"],
+        default=None,
+        help="bank-side data source: 'synthetic' (default, v1 generator) or "
+        "'dodo' (pull real Dodo Payments sandbox transactions, W11). Omit to "
+        "use LEDGER_SENSE_DATA_SOURCE (default 'synthetic').",
+    )
     return parser
 
 
@@ -53,16 +78,35 @@ def write_dataset(dataset: GeneratedDataset, out_dir: str) -> None:
     )
 
 
-def main(argv=None) -> int:
+def main(argv=None, *, config: Optional[Config] = None, client: Optional[DodoClient] = None) -> int:
+    """``config``/``client`` are injectable (default: real env / real transport)
+    so tests never touch the real environment or network (law L20) -- see
+    ``tests/test_dodo_source.py``."""
     args = build_arg_parser().parse_args(argv)
-    config = GeneratorConfig(
+    cfg = config if config is not None else load_config()
+    source = args.source or cfg.data_source
+
+    if source == "dodo":
+        try:
+            ensure_dodo_configured(cfg)
+        except DodoNotConfiguredError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+        dodo_client = client if client is not None else DodoSandboxClient(api_key=cfg.dodo_api_key)
+        dodo_dataset = build_dodo_dataset(dodo_client, seed=args.seed)
+        if args.out_dir:
+            write_dataset(dodo_dataset, args.out_dir)
+        print(dodo_dataset.format())
+        return 0
+
+    generator_config = GeneratorConfig(
         seed=args.seed,
         pass_number=args.pass_number,
         n_cases=args.n_cases,
         overlay=args.overlay,
         universe_size=args.universe_size,
     )
-    dataset = generate(config)
+    dataset = generate(generator_config)
     if args.out_dir:
         write_dataset(dataset, args.out_dir)
     print(dataset.summary.format())
