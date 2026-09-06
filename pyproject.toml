@@ -16,9 +16,11 @@ dev = ["pytest>=7.0"]
 
 [project.scripts]
 ledger-sense-generate = "ledger_sense.data.cli:main"
+ledger_sense = "ledger_sense.learning.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = ["slow: full pass-1/pass-2 pipeline tests that shell out to Agent 1/2's real CLIs"]
